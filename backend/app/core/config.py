@@ -14,7 +14,8 @@ class Settings(BaseSettings):
   # Безопастность 
   SECRET_KEY: str 
   ALGORITHM: str = "HS256"
-  ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7    # 7 дней
+  ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7    # 30 минут
+  REFRESH_TOKEN_EXPIRE_DAYS: int = 30               # 30 дней
 
   # База данных
   DATABASE_URL: str
