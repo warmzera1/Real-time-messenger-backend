@@ -65,9 +65,9 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> 
 
   # 2. Вычисляем время жизни refresh-токена
   if expires_delta:
-    expire = timedelta.utcnow() + expires_delta
+    expire = datetime.utcnow() + expires_delta
   else:
-    expire = timedelta.utcnow() + timedelta(settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.utcnow() + timedelta(settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
   # 3. Добавляем exp в payload 
   to_encode.update(
