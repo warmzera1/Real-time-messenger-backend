@@ -31,7 +31,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         detail="Невалидный токен",
       )
   
-  # 3. Если токен поврежден
+  # 3. Если токен поврежден - ошибка
   except JWTError:
     raise HTTPException(
       status_code=status.HTTP_401_UNAUTHORIZED,

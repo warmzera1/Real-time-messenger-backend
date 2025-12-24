@@ -5,4 +5,3 @@ from sqlalchemy.ext.declarative import declarative_base
 # Все модели наследуем от него, получают общие методы и метаданные
 Base = declarative_base()
 
-from .user import User 
