@@ -12,7 +12,7 @@ class UserCreate(BaseModel):
 
 
 class UserResponse(BaseModel):
-  """Схема для возврата данных пользователя (GET /users/{id})"""
+  """Схема с информацией данных пользователя (GET /users/{id})"""
 
   id: int
   username: str 
