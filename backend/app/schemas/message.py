@@ -20,6 +20,6 @@ class MessageResponse(MessageBase):
   id: int
   chat_id: int 
   sender_id: int 
-  create_at: datetime 
+  created_at: datetime 
 
   model_config = ConfigDict(from_attributes=True)

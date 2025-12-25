@@ -10,7 +10,7 @@ from app.dependencies.auth import get_current_user
 from app.models.user import User
 
 
-router = APIRouter(prefix="/messages", tags=["messages"])
+router = APIRouter(tags=["messages"])
 
 @router.post("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 async def send_message(

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from jose import jwt, JWTError
 from app.database import get_db
-from app.schemas.user import UserCreate 
+from app.schemas.user import UserCreate, LoginForm
 from app.schemas.token import TokenResponse
 from app.models.user import User 
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
@@ -61,16 +61,23 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(username: str, password: str, db: Session = Depends(get_db)):
+async def login(form: LoginForm, db: Session = Depends(get_db)):
   """Логин пользователя"""
+
+  identifier = form.get_identifier()
+  if not identifier:
+    raise HTTPException(
+      status_code=status.HTTP_400_BAD_REQUEST,
+      detail="Укажите username или email",
+    )
 
   # 1. Поиск пользователя
   user = db.query(User).filter(
-    User.username == username
+    (User.username == identifier) | (User.email == identifier)
   ).first()
 
   # 2. Проверка существования пользователя и пароля
-  if not user or verify_password(password, user.hashed_password):
+  if not user or not verify_password(form.password, user.hashed_password):
     raise HTTPException(
       status_code=status.HTTP_401_UNAUTHORIZED,
       detail="Неверные учетные данные",

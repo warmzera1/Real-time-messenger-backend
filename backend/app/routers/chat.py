@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
+from typing import List
 from app.database import get_db 
 from app.schemas.chat import ChatRoomCreate, ChatRoomResponse
 from app.models.chat import ChatRoom
