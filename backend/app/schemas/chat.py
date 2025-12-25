@@ -13,7 +13,7 @@ class ChatRoomBase(BaseModel):
 class ChatRoomCreate(ChatRoomBase):
   """Схема для создания чата"""
 
-  pass 
+  second_user_id: int             # ID второго пользователя для личного чата
 
 
 class ChatRoomResponse(ChatRoomBase):
