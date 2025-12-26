@@ -4,14 +4,20 @@ from app.routers import auth
 from app.routers import users
 from app.routers import chat
 from app.routers import messages
+# from app.routers import websocket 
 from app.core.config import settings
 from app.models.base import Base
 from app.database import engine 
+import asyncio
 
-# Создаем таблицы (вручную)
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="My Messenger")
+
+# Создаем таблицы 
+@app.on_event("startup")
+async def create_tables():
+  async with engine.begin() as conn:
+    await conn.run_sync(Base.metadata.create_all)
 
 # CORS
 app.add_middleware(

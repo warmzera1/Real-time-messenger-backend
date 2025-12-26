@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, func, select, desc
 from typing import List
+
 from app.database import get_db 
 from app.schemas.chat import ChatRoomCreate, ChatRoomResponse
 from app.models.chat import ChatRoom
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/chats", tags=["chats"])
 async def create_chat(
   chat_data: ChatRoomCreate,
   current_user: User = Depends(get_current_user),
-  db: Session = Depends(get_db),
+  db: AsyncSession = Depends(get_db),
 ):
   """
   Создание чата (личного)
@@ -30,9 +31,10 @@ async def create_chat(
     )
   
   # 2. Проверка существования второго пользователя
-  second_user = db.query(User).filter(
-    User.id == chat_data.second_user_id,
-  ).first()
+  result = await db.execute(
+    select(User).where(User.id == chat_data.second_user_id)
+  )
+  second_user = result.scalar_one_or_none()
   
   # 3. Если нет - ошибка
   if not second_user:
@@ -42,25 +44,27 @@ async def create_chat(
     )
   
   # 4. Поиск существующего личного чата
-  existing_chat = (
-    db.query(ChatRoom)
+  stmt = (
+    select(ChatRoom)
     .join(participants)
-    .filter(ChatRoom.is_group == False, participants.c.user_id
-    .in_([current_user.id, chat_data.second_user_id]))
+    .where(ChatRoom.is_group == False)
+    .where(participants.c.user_id.in_([current_user.id, chat_data.second_user_id]))
     .group_by(ChatRoom.id)
-    .having(func.count(participants.c.user_id) == 2)
-    .first()
+    .having(func.count(participants.c.user_id.distinct()) == 2)
   )
+  result = await db.execute(stmt)
+  existing_chat = result.scalar_one_or_none()
 
-  # 5. Если найден - возвращаем
+  # 5. Если найден - возвращаем существующий чат
   if existing_chat:
-    return existing_chat
+    result = await db.execute(select(ChatRoom).where(ChatRoom.id == existing_chat))
+    return result.scalar_one()
   
   # 6. Если нет - создаем
   new_chat = ChatRoom(name=None, is_group=False)
   db.add(new_chat)
-  db.commit()
-  db.refresh(new_chat)
+  await db.commit()
+  await db.refresh(new_chat)
 
   # 7. Добавляем обоих участников в БД 
   db.execute(
@@ -69,7 +73,7 @@ async def create_chat(
       {"user_id": chat_data.second_user_id, "chat_id": new_chat.id}
     ])
   )
-  db.commit()
+  await db.commit()
 
   # 8. Возвращаем чат
   return new_chat
@@ -78,7 +82,7 @@ async def create_chat(
 @router.get("/", response_model=List[ChatRoomResponse])
 async def get_user_chats(
   current_user: User = Depends(get_current_user),
-  db: Session = Depends(get_db),
+  db: AsyncSession = Depends(get_db),
 ):
   """
   Список чатов текущего пользователя
@@ -89,12 +93,14 @@ async def get_user_chats(
   5. Возвращаем список чатов
   """
 
-  chats = (
-    db.query(ChatRoom)
+  stmt = (
+    select(ChatRoom)
     .join(participants, ChatRoom.id == participants.c.chat_id)
-    .filter(participants.c.user_id == current_user.id)
-    .all()
+    .where(participants.c.user_id == current_user.id)
+    .order_by(desc(ChatRoom.created_at))
   )
+  result = await db.execute(stmt)
+  chats = result.scalars().all()
   return chats
 
 

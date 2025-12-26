@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status 
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import or_, select
 from jose import jwt, JWTError
+
 from app.database import get_db
 from app.schemas.user import UserCreate, LoginForm
 from app.schemas.token import TokenResponse
@@ -9,20 +10,22 @@ from app.models.user import User
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 from app.core.config import settings
 
-
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
   """Регистрация нового пользователя с выдачей access и refresh токенов"""
 
   # 1. Проверка существования
-  existing_user = db.query(User).filter(
+  stmt = select(User).where(
     or_(
       User.username == user_data.username,
       User.email == user_data.email,
     )
-  ).first()
+  )
+  result = await db.execute(stmt)
+  existing_user = result.scalar_one_or_none()
 
   # 2. Если существует - ошибка
   if existing_user:
@@ -42,8 +45,8 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
   )
 
   db.add(new_user)
-  db.commit()
-  db.refresh(new_user)
+  await db.commit()
+  await db.refresh(new_user)
 
   # 5. Payload и токены
   payload = {
@@ -61,7 +64,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(form: LoginForm, db: Session = Depends(get_db)):
+async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
   """Логин пользователя"""
 
   identifier = form.get_identifier()
@@ -72,9 +75,11 @@ async def login(form: LoginForm, db: Session = Depends(get_db)):
     )
 
   # 1. Поиск пользователя
-  user = db.query(User).filter(
+  stmt = select(User).where(
     (User.username == identifier) | (User.email == identifier)
-  ).first()
+  )
+  result = await db.execute(stmt)
+  user = result.scalar_one_or_none()
 
   # 2. Проверка существования пользователя и пароля
   if not user or not verify_password(form.password, user.hashed_password):
@@ -99,7 +104,7 @@ async def login(form: LoginForm, db: Session = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
+async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
   """Обновление access-токена по refresh-токену"""
 
   try: 
@@ -125,9 +130,10 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
     )
   
   # 4. Поиск пользователя в БД
-  user = db.query(User).filter(
+  result = await(select(User).where(
     User.id == int(user_id)
-  ).first()
+  ))
+  user = result.scalar_one_or_none()
   
   # 4. Новые токены (rotating refresh)
   new_payload = {"sub": user_id}

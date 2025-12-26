@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import desc 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
 from typing import List
+
 from app.database import get_db 
 from app.schemas.message import MessageCreate, MessageResponse
 from app.models.message import Message
@@ -17,24 +18,22 @@ async def send_message(
   chat_id: int,
   message_data: MessageCreate,
   current_user: User = Depends(get_current_user),
-  db: Session = Depends(get_db),
+  db: AsyncSession = Depends(get_db),
 ):
   """
   Отправка сообщений в чат
   """
 
   # 1. Проверяем, является ли пользователь участником конкретного чата
-  is_participant = (
-    db.query(participants)
-    .filter(
+  is_participant = await db.execute(
+    select(participants).where(
       participants.c.user_id == current_user.id,
       participants.c.chat_id == chat_id,
     )
-    .first()
   )
 
   # Если нет - ошибка
-  if not is_participant:
+  if not is_participant.first():
     raise HTTPException(
       status_code=status.HTTP_403_FORBIDDEN,
       detail="Вы не являетесь участником этого чата",
@@ -49,8 +48,8 @@ async def send_message(
 
   # Добавляем в БД и сохраняем
   db.add(new_message)
-  db.commit()
-  db.refresh(new_message)
+  await db.commit()
+  await db.refresh(new_message)
 
   # Возвращаем новое сообщение
   return new_message
@@ -60,7 +59,7 @@ async def send_message(
 async def get_messages(
   chat_id: int,
   current_user: User = Depends(get_current_user),
-  db: Session = Depends(get_db),
+  db: AsyncSession = Depends(get_db),
   limit: int = 50,
   offset: int = 0,
 ):
@@ -69,31 +68,30 @@ async def get_messages(
   """
 
   # Проверяем, является ли пользователь участником конкретного чата
-  is_participant = (
-    db.query(participants)
-    .filter(
+  is_participant = await db.execute(
+    select(participants).where(
       participants.c.user_id == current_user.id,
       participants.c.chat_id == chat_id,
     )
-    .first()
   )
 
   # Если нет - ошибка
-  if not is_participant:
+  if not is_participant.first():
     raise HTTPException(
       status_code=status.HTTP_403_FORBIDDEN,
       detail="Вы не являетесь участником чата",
     )
   
   # Получение сообщение
-  messages = (
-    db.query(Message)
-    .filter(Message.chat_id == chat_id)
+  stmt = (
+    select(Message)
+    .where(Message.chat_id == chat_id)
     .order_by(desc(Message.created_at))
     .limit(limit)
     .offset(offset)
-    .all()
   )
+  result = await db.execute(stmt)
+  messages = result.scalars().all()
 
   # Возвращаем ответ с сообщениями
   return messages 
