@@ -45,7 +45,7 @@ class ConnectionManager:
     logger.info(f"Пользователь отключился от чата -> {chat_id}")
 
   
-  async def broadcast(self, data: dict, chat_id: int):
+  async def send_to_all(self, data: dict, chat_id: int):
     """
     Отправляет сообщение ВСЕМ в чате
     """
@@ -74,6 +74,46 @@ class ConnectionManager:
       if chat_id is self.active_connections:
         self.active_connections[chat_id].discard(ws)
     logger.info(f"Удалено: {len(dead)} мертвых соединений")
+
+
+  async def send_to_other(self, data: dict, chat_id: int, exclude_ws: WebSocket):
+      """Отправляет ВСЕМ кроме указанного соединения"""
+
+      # 1. Проверяем, есть ли активные соединения в чате  
+      if chat_id not in self.active_connections:
+        logger.warning(f"[send_to_other] Нет активных соединений в чате: {chat_id}")
+        return
+      
+      # 2. Фильтрация соединений, если нет - ошибка
+      connections = [
+        ws for ws in self.active_connections[chat_id]
+        if ws != exclude_ws
+      ]
+      logger.info(f"[send_to_other] Будет отправлено {len(connections)} получателям")
+      
+      if not connections:
+        logger.info(f"[send_to_other] Нет получателей для отправки")
+        return 
+      
+      # 3. Сериализация данных
+      try:
+        json_text = json_dumps(data)
+      except Exception as e:
+        logger.error(f"[send_to_other] Ошибка сериализации: {e}")
+        return 
+      
+
+      for ws in connections:
+        try:
+          await ws.send_text(json_text)
+          logger.debug(f"[send_to_other] Успешно отправлено")
+        except Exception as e:
+          logger.error(f"[send_to_other] Ошибка отправителя: {e}")
+
+      logger.info(
+        f"[send_to_other] Завершено: "
+      )  
+
 
 
 manager = ConnectionManager()

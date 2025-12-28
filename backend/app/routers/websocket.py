@@ -126,12 +126,13 @@ async def websocket_endpoint(
                     # 9. Преобразуем в Pydantic-модель для сериализации
                     message_response = MessageResponse.model_validate(new_message)
 
-                    # 10. Broadcast всем в чате (включая отправителя)
+                    # 10. Send-to-other всем в чате (включая отправителя)
                     payload = {
+                        "sender_id": current_user.id,
                         "type": "message",
                         "message": message_response.model_dump(),
                     }
-                    await manager.broadcast(payload, chat_id)
+                    await manager.send_to_other(payload, chat_id, websocket)
                 
                 except Exception as e:
                     logger.error(f"Критическая ошибка сериализации: {e}")
