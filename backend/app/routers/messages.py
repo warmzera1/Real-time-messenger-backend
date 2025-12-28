@@ -9,6 +9,7 @@ from app.models.message import Message
 from app.models.participant import participants
 from app.dependencies.auth import get_current_user
 from app.models.user import User
+from app.websocket.manager import manager
 
 
 router = APIRouter(tags=["messages"])
@@ -25,7 +26,7 @@ async def send_message(
   """
 
   # 1. Проверяем, является ли пользователь участником конкретного чата
-  is_participant = await db.execute(
+  result = await db.execute(
     select(participants).where(
       participants.c.user_id == current_user.id,
       participants.c.chat_id == chat_id,
@@ -33,7 +34,7 @@ async def send_message(
   )
 
   # Если нет - ошибка
-  if not is_participant.first():
+  if not result.first():
     raise HTTPException(
       status_code=status.HTTP_403_FORBIDDEN,
       detail="Вы не являетесь участником этого чата",

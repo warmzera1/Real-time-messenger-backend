@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 from datetime import datetime 
 
 
@@ -22,4 +22,15 @@ class MessageResponse(MessageBase):
   sender_id: int 
   created_at: datetime 
 
-  model_config = ConfigDict(from_attributes=True)
+    
+  # Комбинированная конфигурация
+  model_config = ConfigDict(
+      from_attributes=True,  # Для работы с ORM объектами (ранее orm_mode)
+      str_strip_whitespace=True,
+      validate_assignment=True,
+  )
+
+  @field_serializer("created_at")
+  def serialize_created_at(self, created_at: datetime, _info):
+    return created_at.isoformat()
+  

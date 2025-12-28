@@ -57,7 +57,7 @@ async def create_chat(
 
   # 5. Если найден - возвращаем существующий чат
   if existing_chat:
-    result = await db.execute(select(ChatRoom).where(ChatRoom.id == existing_chat))
+    result = await db.execute(select(ChatRoom).where(ChatRoom.id == existing_chat.id))
     return result.scalar_one()
   
   # 6. Если нет - создаем

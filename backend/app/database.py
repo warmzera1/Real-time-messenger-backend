@@ -9,7 +9,7 @@ engine = create_async_engine(
   pool_pre_ping=True,
   pool_size=10,
   max_overflow=20,
-  echo=settings.DEBUG,      # Вывод SQL-запросов в консоль
+  # echo=settings.DEBUG,      # Вывод SQL-запросов в консоль
 )
 
 # Session для async

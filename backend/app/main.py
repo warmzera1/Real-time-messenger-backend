@@ -4,7 +4,7 @@ from app.routers import auth
 from app.routers import users
 from app.routers import chat
 from app.routers import messages
-# from app.routers import websocket 
+from app.routers import websocket 
 from app.core.config import settings
 from app.models.base import Base
 from app.database import engine 
@@ -33,7 +33,21 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(messages.router)
+app.include_router(websocket.router)
 
 @app.get("/")
 async def root():
   return {"message": "Api ready"}
+
+import logging
+import sys
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('websocket.log')
+    ]
+)
