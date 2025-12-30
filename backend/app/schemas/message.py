@@ -14,12 +14,13 @@ class MessageCreate(MessageBase):
   pass 
 
 
-class MessageResponse(MessageBase):
+class MessageResponse(BaseModel):
   """Схема с информацией о сообщении"""
 
   id: int
-  chat_id: int 
-  sender_id: int 
+  chat_id: int
+  sender_id: int
+  content: str 
   created_at: datetime 
 
     

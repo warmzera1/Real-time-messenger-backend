@@ -1,5 +1,10 @@
 from fastapi import FastAPI 
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from datetime import datetime
+import asyncio
+import logging
+
 from app.routers import auth 
 from app.routers import users
 from app.routers import chat
@@ -8,7 +13,10 @@ from app.routers import websocket
 from app.core.config import settings
 from app.models.base import Base
 from app.database import engine 
-import asyncio
+from app.redis.manager import redis_manager
+
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="My Messenger")
@@ -18,6 +26,19 @@ app = FastAPI(title="My Messenger")
 async def create_tables():
   async with engine.begin() as conn:
     await conn.run_sync(Base.metadata.create_all)
+    
+@app.on_event("startup")
+async def startup_event():
+  # Проверяем Redis
+  try:
+    if await redis_manager.connect():
+      logger.info(f"[startup_event] Redis подключен успешно")
+    else:
+      logger.warning(f"[startup_event] Redis недоступен, работаем без кэша")
+
+  except Exception as e:
+    logger.error(f"[startup_event] Ошибка подключения к Redis: {e}")
+
 
 # CORS
 app.add_middleware(

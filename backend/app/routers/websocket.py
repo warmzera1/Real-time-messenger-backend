@@ -1,15 +1,14 @@
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, AsyncSessionLocal
 from app.websocket.manager import manager 
 from app.models.participant import participants
-from app.models.user import User 
 from app.models.message import Message 
 from app.schemas.message import MessageResponse
 from app.dependencies.auth import get_current_user
+from app.redis.manager import RedisManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -44,8 +43,8 @@ async def websocket_endpoint(
         # 2. Получаем пользователя по токену 
         try:
            # Аутентификация
-           current_user: User = await get_current_user(token=token, db=db)
-           logger.info(f"Пользователь {current_user.id} аутентифицирован для чата {chat_id}")
+           current_user = await get_current_user(token=token, db=db)
+           logger.info(f"Пользователь {current_user['id']} аутентифицирован для чата {chat_id}")
         except Exception as e:
             logger.info(f"Ошибка аутентификации: {e}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -54,35 +53,35 @@ async def websocket_endpoint(
         # 3. Проверка участия в чате 
         result = await db.execute(
             select(participants).where(
-                participants.c.user_id == current_user.id,
+                participants.c.user_id == current_user["id"],
                 participants.c.chat_id == chat_id,
             )
         )
 
         if not result.first():
-            logger.warning(f"Пользователь {current_user.id} не участник чата {chat_id}")
+            logger.warning(f"Пользователь {current_user['id']} не участник чата {chat_id}")
             await websocket.close(status=status.WS_1008_POLICY_VIOLATION)
             return 
         
-        logger.info(f"Проверка участия в чате пройдена для пользователя -> {current_user.id}")
+        logger.info(f"Проверка участия в чате пройдена для пользователя -> {current_user['id']}")
         
         # 4. Подключение к менеджеру
-        await manager.connect(websocket, chat_id)
+        await manager.connect(websocket, chat_id, current_user['id'])
 
         # 5. Подверждаем подключение пользователю
         await websocket.send_json({
             "type": "system",
             "message": "connected",
             "chat_id": chat_id,
-            "user_id": current_user.id,
+            "user_id": current_user["id"],
         })
-        logger.info(f"Отправлено подтверждение подключения пользователю -> {current_user.id}")
+        logger.info(f"Отправлено подтверждение подключения пользователю -> {current_user['id']}")
         
         try:
             # 6. Держим соединение открым ДО отключения 
             while True:
                 raw_data = await websocket.receive_text()
-                logger.info(f"Получены данные от пользователя {current_user.id}: {raw_data[:100]}...")
+                # logger.info(f"Получены данные от пользователя {current_user.id}: {raw_data[:100]}...")
 
                 # 7. Парсим JSON
                 try:
@@ -105,7 +104,7 @@ async def websocket_endpoint(
                     # Создаем и сохраняем сообщение
                     new_message = Message(
                         chat_id=chat_id,
-                        sender_id=current_user.id,
+                        sender_id=current_user["id"],
                         content=content,
                     )
                     db.add(new_message)
@@ -128,7 +127,7 @@ async def websocket_endpoint(
 
                     # 10. Send-to-other всем в чате (включая отправителя)
                     payload = {
-                        "sender_id": current_user.id,
+                        "sender_id": current_user["id"],
                         "type": "message",
                         "message": message_response.model_dump(),
                     }
@@ -150,4 +149,5 @@ async def websocket_endpoint(
             logger.error(f"Неожиданная ошибка: {e}")
     finally:
         await manager.disconnect(websocket, chat_id)
+
 
