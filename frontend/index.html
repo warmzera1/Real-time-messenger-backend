@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мессенджер</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+  <!-- Боковая панель -->
+  <div class="sidebar">
+    <div class="spider-header">
+      <input type="text" class="search-input" placeholder="Поиск чатов..." id="chatSearch">
+    </div>
+    <div class="chat-list" id="chatList">
+      <!-- Список чатов -->
+      <div class="chat-item">Загрузка чатов...</div>
+    </div>
+  </div>
+
+  <!-- Основная область чата -->
+  <div class="chat-area">
+    <div class="chat-header" id="chatHeader">
+      <h2>Выберите чат</h2>
+    </div>
+
+    <div class="messages-container" id="messagesContainer">
+      <p style="text-align: center; color: #666; margin-top: 50px;">
+        Выберите чат для начала общения
+      </p>
+    </div>
+
+    <div class="input-area" id="inputArea" style="display: none;">
+      <input type="text" class="message-input" placeholder="Введите сообщение..." id="messageInput">
+      <button class="send-button" id="sendButton">Отправить</button>
+    </div>
+  </div>
+
+  <!-- Кнопка нового чата -->
+  <button class="new-chat-button" id="newChatButton">+</button>
+
+  <!-- Модальное окно поиска пользователей -->
+  <div class="model-overplay" id="userSearchModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Новый чат</h3>
+        <button class="close-modal" id="closeModal">&times;</button>
+      </div>
+      <input type="text" class="user-seach-input" placeholder="Поиск пользователей..." id="userSearchInput">
+      <div class="user-list" id="userList">
+        <!-- Список пользователей -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Подключаем скрипты -->
+  <script type="module" src="js/api.js"></script>
+  <script type="module" src="js/chat.js"></script>
+</body>
+
+</html>
