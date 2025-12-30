@@ -8,7 +8,7 @@ export async function apiRequest(endpoint, method = "GET", data = null) {
   const options = {
     method,
     headers: {
-      "Content-Type": "applications/json", // Отправляем JSON
+      "Content-Type": "application/json", // Отправляем JSON
       "X-CSRFToken": getCSRFToken(), // Добавляем CSRF токен для защиты
     },
     credentials: "include", // Автотически отправляем и получаем куки
@@ -37,7 +37,7 @@ function getCSRFToken() {
   const cookies = document.cookie.split(";");
 
   // Перебираем каждую куку
-  for (let cookie in cookies) {
+  for (let cookie of cookies) {
     // Убираем пробелы и разделяем на имя=значение
     const [name, value] = cookie.trim().split("=");
 
