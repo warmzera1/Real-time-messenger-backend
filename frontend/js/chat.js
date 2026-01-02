@@ -360,7 +360,7 @@ async function createNewChat(userId) {
   try {
     // Эндпоинт для создания чата
     const newChat = await apiRequest("/chats/", "POST", {
-      second_user_id: parseInt(userId),
+      second_user_id: Number(userId),
     });
 
     console.log("Создан новый чат:", newChat);
@@ -368,8 +368,20 @@ async function createNewChat(userId) {
     // Закрываем модальное окно
     hideUserSearchModal();
 
-    // Обновляем список чатов
-    chats.unshift(newChat);
+    // Проверяем, существует ли уже такой же чат
+    const existingChatIndex = chats.findIndex((c) => c.id === newChat.id);
+
+    if (existingChatIndex === -1) {
+      // Новый чат - добавляем в начало
+      chats.unshift(newChat);
+    } else {
+      // Чат уже есть - перемещаем в начало
+      const [existingChat] = chats.splice(existingChatIndex, 1);
+      chats.unshift(existingChat);
+    }
+
+    // // Обновляем список чатов
+    // chats.unshift(newChat);
     renderChatList();
 
     // Выбираем новый чат
@@ -395,8 +407,8 @@ function updateChatHeader() {
     return;
   }
 
-  const chatName = currentChat.name || "Без названия";
-  const participantsCount = 1;
+  let chatName = currentChat.name || "Без названия";
+  let participantsCount = 1;
 
   if (!currentChat.is_group && currentChat.participants) {
     const otherUser = currentChat.participants.find(

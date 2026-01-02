@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, func, select, desc
 from sqlalchemy.orm import selectinload
@@ -15,9 +15,10 @@ from app.models.user import User
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
-@router.post("/", response_model=ChatRoomResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ChatRoomResponse)
 async def create_chat(
   chat_data: ChatRoomCreate,
+  response: Response,
   current_user: dict = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
 ):
@@ -59,8 +60,8 @@ async def create_chat(
 
   # 5. Если найден - возвращаем существующий чат
   if existing_chat:
-    result = await db.execute(select(ChatRoom).where(ChatRoom.id == existing_chat.id))
-    return result.scalar_one()
+    response.status_code = status.HTTP_200_OK
+    return existing_chat
   
   # 6. Если нет - создаем
   new_chat = ChatRoom(name=None, is_group=False)
@@ -77,6 +78,7 @@ async def create_chat(
   await db.commit()
   await db.refresh(new_chat, ["participants"])
 
+  response.status_code = status.HTTP_201_CREATED
   # 8. Возвращаем чат
   return new_chat
 
