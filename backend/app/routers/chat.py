@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, func, select, desc
+from sqlalchemy.orm import selectinload
 from typing import List
 
 from app.database import get_db 
 from app.schemas.chat import ChatRoomCreate, ChatRoomResponse
+from app.schemas.user import UserResponse
 from app.models.chat import ChatRoom
 from app.models.participant import participants 
 from app.dependencies.auth import get_current_user
@@ -16,7 +18,7 @@ router = APIRouter(prefix="/chats", tags=["chats"])
 @router.post("/", response_model=ChatRoomResponse, status_code=status.HTTP_201_CREATED)
 async def create_chat(
   chat_data: ChatRoomCreate,
-  current_user: User = Depends(get_current_user),
+  current_user: dict = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
 ):
   """
@@ -24,7 +26,7 @@ async def create_chat(
   """
 
   # 1. Проверка, что второй пользователь не текущий
-  if chat_data.second_user_id == current_user.id:
+  if chat_data.second_user_id == current_user["id"]:
     raise HTTPException(
       status_code=status.HTTP_400_BAD_REQUEST,
       detail="Нельзя создавать чат с самим собой",
@@ -48,7 +50,7 @@ async def create_chat(
     select(ChatRoom)
     .join(participants)
     .where(ChatRoom.is_group == False)
-    .where(participants.c.user_id.in_([current_user.id, chat_data.second_user_id]))
+    .where(participants.c.user_id.in_([current_user["id"], chat_data.second_user_id]))
     .group_by(ChatRoom.id)
     .having(func.count(participants.c.user_id.distinct()) == 2)
   )
@@ -66,14 +68,14 @@ async def create_chat(
   await db.commit()
   await db.refresh(new_chat)
 
-  # 7. Добавляем обоих участников в БД 
-  db.execute(
-    participants.insert().values([
-      {"user_id": current_user.id, "chat_id": new_chat.id},
-      {"user_id": chat_data.second_user_id, "chat_id": new_chat.id}
-    ])
-  )
+  # 7. Добавляем обоих участников в БД
+  stmt = select(User).where(User.id.in_([current_user["id"], chat_data.second_user_id]))
+  result = await db.execute(stmt)
+  users = result.scalars().all()
+
+  new_chat.participants.extend(users)
   await db.commit()
+  await db.refresh(new_chat, ["participants"])
 
   # 8. Возвращаем чат
   return new_chat
@@ -95,13 +97,35 @@ async def get_user_chats(
 
   stmt = (
     select(ChatRoom)
-    .join(participants, ChatRoom.id == participants.c.chat_id)
-    .where(participants.c.user_id == current_user.id)
+    .join(ChatRoom.participants)
+    .where(ChatRoom.participants.any(User.id == current_user["id"]))
+    .options(selectinload(ChatRoom.participants))
     .order_by(desc(ChatRoom.created_at))
   )
   result = await db.execute(stmt)
   chats = result.scalars().all()
   return chats
+
+
+@router.get("/search", response_model=List[UserResponse])
+async def search_users(
+  q: str = Query(..., min_length=2, description="Поисковой запрос"),
+  current_user: dict = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db),
+  limit: int = 20,
+):
+  """Поиск пользователей по username (исключая текущего)"""
+
+  stmt = (
+    select(User)
+    .where(User.username.ilike(f"%{q}%"))
+    .where(User.id != current_user["id"])
+    .limit(limit)
+  )
+
+  result = await db.execute(stmt)
+  users = result.scalars().all()
+  return users
 
 
 

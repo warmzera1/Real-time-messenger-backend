@@ -21,7 +21,8 @@ class UserResponse(BaseModel):
   created_at: Optional[datetime] = None 
 
   # Позволяет создавать модели из объектов ORM
-  model_config = ConfigDict(form_attributes=True)     
+  model_config = ConfigDict(form_attributes=True)    
+
 
 
 class LoginForm(BaseModel):

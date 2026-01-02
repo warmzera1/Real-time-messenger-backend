@@ -18,7 +18,7 @@ router = APIRouter(tags=["messages"])
 async def send_message(
   chat_id: int,
   message_data: MessageCreate,
-  current_user: User = Depends(get_current_user),
+  current_user: dict = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
 ):
   """
@@ -28,7 +28,7 @@ async def send_message(
   # 1. Проверяем, является ли пользователь участником конкретного чата
   result = await db.execute(
     select(participants).where(
-      participants.c.user_id == current_user.id,
+      participants.c.user_id == current_user["id"],
       participants.c.chat_id == chat_id,
     )
   )
@@ -43,7 +43,7 @@ async def send_message(
   # Создаем сообщение
   new_message = Message(
     chat_id=chat_id,
-    sender_id=current_user.id,
+    sender_id=current_user["id"],
     content=message_data.content,
   )
 
@@ -59,7 +59,7 @@ async def send_message(
 @router.get("/{chat_id}/messages", response_model=List[MessageResponse])
 async def get_messages(
   chat_id: int,
-  current_user: User = Depends(get_current_user),
+  current_user: dict = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
   limit: int = 50,
   offset: int = 0,
@@ -71,7 +71,7 @@ async def get_messages(
   # Проверяем, является ли пользователь участником конкретного чата
   is_participant = await db.execute(
     select(participants).where(
-      participants.c.user_id == current_user.id,
+      participants.c.user_id == current_user["id"],
       participants.c.chat_id == chat_id,
     )
   )

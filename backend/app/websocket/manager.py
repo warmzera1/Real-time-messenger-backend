@@ -45,27 +45,42 @@ class ConnectionManager:
     logger.info(f"[connect] Пользователь {user_id} присоединился к чату {chat_id}, ws_id {ws_id}")
 
 
-
   async def disconnect(self, websocket: WebSocket, chat_id: int):
     """
     Отключает WebSocket из чата
     """
-
-    ws_id = self.websocket_ids[websocket]
-
-    # 1. Локальное хранилише
-    if chat_id in self.active_connections:
-      self.active_connections[chat_id].discard(websocket)
-    
-    # 2. Удаляем из mapping
-    if websocket in self.websocket_ids:
-      del self.websocket_ids[websocket]
-
-    # 3. Redis: удаляем WebSocket соединение 
-    if ws_id:
-      await redis_manager.remove_websocket_connection(chat_id, ws_id)
-
-    logger.info(f"[disconnect] Пользователь отключился от чата {chat_id}, ws_id: {ws_id}")
+    try:
+        # Безопасно получаем ID WebSocket (если есть) из локального сервера
+        ws_id = self.websocket_ids.get(websocket)
+        
+        # Удаляем WebSocket из словаря всех активных подключений
+        if websocket in self.websocket_ids:
+            del self.websocket_ids[ws_id]
+        
+        # Удаляем WebSocket из активных подключений конкретного чата
+        if chat_id in self.active_connections:
+            self.active_connections[chat_id].discard(websocket)
+            # Если в чате нет больше подключений - удаляем чат из словаря
+            if not self.active_connections[chat_id]:
+                del self.active_connections[chat_id]
+        
+        # Удаляем запись из Redis
+        if ws_id:
+            try:
+                await redis_manager.remove_websocket_connection(chat_id, ws_id)
+            except Exception as e:
+                logger.error(f"Redis error: {e}")
+        
+        logger.info(f"[disconnect] Отключен от чата {chat_id}, ws_id: {ws_id}")
+        
+    except Exception as e:
+        logger.error(f"[disconnect] Критическая ошибка: {e}")
+        # Восстановительная очистка: удаляем хотя бы из памяти
+        try:
+            if chat_id in self.active_connections:
+                self.active_connections[chat_id].discard(websocket)
+        except:
+            pass    # Игнорируем любые ошибки очистки
 
   
   async def send_to_all(self, data: dict, chat_id: int):

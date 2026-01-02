@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional 
-from datetime import datetime 
+from typing import Optional, List
+from datetime import datetime
+from app.schemas.user import UserResponse
 
 
 class ChatRoomBase(BaseModel):
@@ -20,6 +21,7 @@ class ChatRoomResponse(ChatRoomBase):
   """Схема с информацией о чате"""
 
   id: int 
-  created_at: datetime 
+  created_at: datetime
+  participants: List[UserResponse]
 
   model_config = ConfigDict(from_attributes=True)

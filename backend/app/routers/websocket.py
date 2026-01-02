@@ -60,7 +60,7 @@ async def websocket_endpoint(
 
         if not result.first():
             logger.warning(f"Пользователь {current_user['id']} не участник чата {chat_id}")
-            await websocket.close(status=status.WS_1008_POLICY_VIOLATION)
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return 
         
         logger.info(f"Проверка участия в чате пройдена для пользователя -> {current_user['id']}")
