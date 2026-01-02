@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Мессенджер</title>
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="css/style.css">
 </head>
 
 <body>
   <!-- Боковая панель -->
   <div class="sidebar">
-    <div class="spider-header">
+    <div class="sidebar-header">
       <input type="text" class="search-input" placeholder="Поиск чатов..." id="chatSearch">
     </div>
     <div class="chat-list" id="chatList">
@@ -42,13 +42,13 @@
   <button class="new-chat-button" id="newChatButton">+</button>
 
   <!-- Модальное окно поиска пользователей -->
-  <div class="model-overplay" id="userSearchModal">
+  <div class="modal-overlay" id="userSearchModal">
     <div class="modal">
       <div class="modal-header">
         <h3>Новый чат</h3>
         <button class="close-modal" id="closeModal">&times;</button>
       </div>
-      <input type="text" class="user-seach-input" placeholder="Поиск пользователей..." id="userSearchInput">
+      <input type="text" class="user-search-input" placeholder="Поиск пользователей..." id="userSearchInput">
       <div class="user-list" id="userList">
         <!-- Список пользователей -->
       </div>
