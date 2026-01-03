@@ -46,6 +46,24 @@ async function loadChats() {
     chats = await apiRequest("/chats", "GET");
     console.log("Загружено чатов пользователя:", chats.length);
 
+    const uniqueChats = [];
+    const seenIds = new Set();
+
+    for (const chat of chats) {
+      if (!seenIds.has(chat.id)) {
+        seenIds.add(chat.id);
+        uniqueChats.push(chat);
+      } else {
+        console.warn(`Обнаружен дубликат чата ID: ${chat.id}`);
+      }
+    }
+
+    chats = uniqueChats;
+    console.log(
+      "Уникальные чаты:",
+      chats.map((c) => c.id)
+    );
+
     // Отображаем список чатов
     renderChatList();
   } catch (error) {
@@ -95,7 +113,8 @@ function renderChatList() {
   // Добавляем обработчики кликов на чаты
   document.querySelectorAll(".chat-item[data-chat-id]").forEach((item) => {
     item.addEventListener("click", function () {
-      const chatId = this.getAttribute("data-chat-id");
+      const chatId = Number(this.getAttribute("data-chat-id"));
+      moveChatToTop(chatId);
       selectChat(chatId);
     });
   });
@@ -105,32 +124,36 @@ function renderChatList() {
 async function selectChat(chatId) {
   console.log("Выбран чат:", chatId);
 
-  // Убираем класс 'active' у всех элементов чата в списке
+  // 1. Находим текущий чат и сохраняем
+  currentChat = chats.find((chat) => chat.id === chatId);
+  if (!currentChat) {
+    console.error("Чат не найден в chats:", chatId);
+    return;
+  }
+
+  // 2. Убираем класс 'active' у всех элементов чата в списке
   document.querySelectorAll(".chat-item").forEach((item) => {
     item.classList.remove("active");
   });
 
-  // Находим элемент выбранного чата по data-атрибуту data-chat-id
+  // 3. Находим элемент выбранного чата по data-атрибуту data-chat-id
   const selectedChat = document.querySelector(`[data-chat-id="${chatId}"]`);
   if (selectedChat) {
     // Добавляем класс 'active' для визуального выделения
     selectedChat.classList.add("active");
   }
 
-  // Асинхронно загружаем историю сообщений для этого чата
+  // 4. Асинхронно загружаем историю сообщений для этого чата
   await loadChatHistory(chatId);
 
-  // Находим объект чата в массиве chats и сохраняем как текущий
-  currentChat = chats.find((chat) => chat.id == chatId);
-
-  // Показываем блок ввода сообщения (был скрыт на экране логина)
-  document.getElementById("inputArea").style.display = "flex";
-
-  // Обновляем заголовок чата (имя собеседника, аватар и т.д)
+  // 5. Обновляем заголовок чата (имя собеседника, аватар и т.д)
   updateChatHeader();
 
-  // Подключаемся к WebSocket этого чата
+  // 6. Подключаемся к WebSocket этого чата
   connectWebSocket(chatId);
+
+  // 7. Показываем блок ввода сообщения (был скрыт на экране логина)
+  document.getElementById("inputArea").style.display = "flex";
 }
 
 // 5. Асинхронная функция загрузки истории сообщений чата по ID
@@ -171,7 +194,7 @@ function renderMessages(messages) {
   const messagesHTML = reversedMessages
     .map((msg) => {
       // Определяем, исходящее ли сообщение (от текущего пользователя)
-      const isOutgoin = msg.sender_id === currentUser.id;
+      const isOutgoing = msg.sender_id === currentUser.id;
       // Формируем время создания сообщения
       const time = new Date(msg.created_at).toLocaleTimeString([], {
         hour: "2-digit",
@@ -181,7 +204,7 @@ function renderMessages(messages) {
       // Возвращаем HTML-блок одного сообщения с нужным классом
       return `
         <div class="message ${
-          isOutgoin ? "message-outgoing" : "message-incoming"
+          isOutgoing ? "message-outgoing" : "message-incoming"
         }">
           <div>${msg.content}</div>
           <div style="font-size: 12px; margin-top: 5px; text-align: right;">${time}</div>
@@ -231,7 +254,7 @@ function setupEventListeners() {
   document
     .getElementById("userSearchInput")
     .addEventListener("input", function (e) {
-      searchUsers(e.target.value);
+      debouncedSearchUsers(e.target.value);
     });
 
   // Закрытие модального окна по клику на темный фон (не на содержание)
@@ -272,6 +295,7 @@ async function sendMessage() {
 
     // Добавляем новое сообщение в интерфейс сразу (оптимистично)
     addMessageToUI(newMessage);
+    moveChatToTop(currentChat.id);
 
     // Если WebSocket подключен, отправляем сообщение другим участникам
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -457,7 +481,10 @@ function connectWebSocket(chatId) {
       const data = JSON.parse(event.data);
       console.log("WebSocket сообщение:", data);
 
-      if (data.type === "message" && data.message) {
+      if (
+        data.type === "message" &&
+        data.message.sender_id !== currentUser.id
+      ) {
         // Добавляем новое сообщение
         addMessageToUI(data.message);
       } else if (data.type === "system") {
@@ -535,6 +562,8 @@ async function searchUsers(query) {
     return;
   }
 
+  userList.innerHTML = "<div>Поиск...</div>";
+
   try {
     const users = await apiRequest(
       `/chats/search?q=${encodeURIComponent(query)}`,
@@ -550,16 +579,25 @@ async function searchUsers(query) {
       .map((user) => {
         if (user.id === currentUser.id) return "";
 
+        const existingChat = findPrivateChatWithUser(user.id);
+        const isExisting = Boolean(existingChat);
+
         return `
-          <div class="user-item" data-user-id="${user.id}">
+          <div class="user-item">
             <div>
               <strong>${user.username}<strong>
               <div style="color: #666; font-size: 14px;">${
                 user.email || ""
               }</div>
             </div>
-            <button class="start-chat-button" data-user-id="${user.id}">
-              Написать
+
+            <button 
+            class="start-chat-button"
+            data-mode='${isExisting ? "open" : "create"}'
+            data-user-id="${user.id}"
+            ${isExisting ? `data-chat-id="${existingChat.id}"` : ""}
+            >
+              ${isExisting ? "Открыть чат" : "Написать"}
             </button>
           </div>
       `;
@@ -570,8 +608,16 @@ async function searchUsers(query) {
 
     document.querySelectorAll(".start-chat-button").forEach((button) => {
       button.addEventListener("click", function () {
-        const userId = this.getAttribute("data-user-id");
-        createNewChat(userId);
+        const mode = this.dataset.mode;
+
+        if (mode === "open") {
+          const chatId = Number(this.dataset.chatId);
+          hideUserSearchModal();
+          moveChatToTop(chatId);
+          selectChat(chatId);
+        } else {
+          createNewChat(this.dataset.userId);
+        }
       });
     });
   } catch (error) {
@@ -608,7 +654,7 @@ function renderFilteredChats(filteredChats) {
       return `
       <div class="chat-item" data-chat-id="${chat.id}">
         <div style="font-weight: bold;">${chatName}</div>
-        <div style="color: #666; font-size: 14px;">${lastMessage}</div>
+        // <div style="color: #666; font-size: 14px;">${lastMessage}</div>
       </div>
     `;
     })
@@ -619,11 +665,54 @@ function renderFilteredChats(filteredChats) {
 
   document.querySelectorAll(".chat-item[data-chat-id]").forEach((item) => {
     item.addEventListener("click", function () {
-      const chatId = this.getAttribute("data-chat-id");
+      const chatId = Number(this.getAttribute("data-chat-id"));
+      moveChatToTop(chatId);
       selectChat(chatId);
     });
   });
 }
+
+// 20. Универсальная функция debounce - задержка
+function debounce(fn, delay = 300) {
+  // Переменная для хранения ID таймера
+  let timeoutId;
+
+  // Возвращаем новую функцию обертку
+  return function (...args) {
+    // При каждом вызове сбрасываем предыдущий таймер
+    clearTimeout(timeoutId);
+
+    // Запускаем новый таймер
+    timeoutId = setTimeout(() => {
+      // По истечению delay вызываем оригинальную функцию fn
+      // apply сохраняет контекст this и передает все аргументы
+      fn.apply(this, args);
+    }, delay);
+  };
+}
+
+// 21. Вспомогательная функция поиска чата
+function findPrivateChatWithUser(userId) {
+  return chats.find(
+    (chat) =>
+      !chat.is_group &&
+      chat.participants.length == 2 &&
+      chat.participants.some((u) => u.id === Number(userId))
+  );
+}
+
+// 22. Функция "поднятия чат вверх" (после отправки сообщения, поиска пользователя)
+function moveChatToTop(chatId) {
+  const index = chats.findIndex((c) => c.id === Number(chatId));
+  if (index === -1) return;
+
+  const [chat] = chats.splice(index, 1);
+  chats.unshift(chat);
+
+  renderChatList();
+}
+
+const debouncedSearchUsers = debounce(searchUsers, 400);
 
 // Экспортиуем ключевые функции в глобальный объект для удобной отладки в консоли
 window.chatApp = {
