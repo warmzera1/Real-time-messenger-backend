@@ -9,7 +9,7 @@ import logging
 from app.utils.json_encoder import json_dumps
 from app.redis.manager import redis_manager
 from app.models.user import User
- 
+from app.services.chat_services import ChatService
 
 
 
@@ -185,6 +185,9 @@ class WebSocketManager:
     # Храним таски для heartbeat 
     self.heartbeat_tasks: Dict[WebSocket, asyncio.Task] = {}
 
+    # Чат-сервис
+    self.chat_service = ChatService()
+
 
   async def connect(self, websocket: WebSocket, user: User): 
     """
@@ -294,10 +297,15 @@ class WebSocketManager:
     """
 
     # Получаем все чаты пользователя
-    user_chats = await self._get_user_chats(user_id)
+    chat_service = ChatService()
+
+    chats = await chat_service.get_user_chat_ids(user_id)
+    chat_ids = [chat.id for chat in chats]
+
+    logger.info(f"[Subscribe] Пользователь {user_id} имеет количество {len(chat_ids)} чатов")
 
     # Подписываемся на каналы
-    for chat_id in user_chats:
+    for chat_id in chat_ids:
       # Канал новых сообщений
       await redis_manager.subscribe_to_chat_messages(user_id, chat_id)
       # Канал обновлений чата
@@ -314,7 +322,20 @@ class WebSocketManager:
     Получение списка чатов пользователя
     """
 
-    pass 
+    try:
+      # Получаем чаты пользователей через сервис
+      chats = await self.chat_service.get_user_chats(user_id)
+
+      # Извлекаем только ID чатов
+      chat_ids = [chat.id for chat in chats]
+
+      logger.debug(f"[Get User Chats] Пользователь {user_id} имеет чаты: {chat_ids}")
+      return chat_ids
+    
+    except Exception as e:
+      logger.error(f"[Get User Chats] Ошибка для пользователя: {user_id}: {e}")
+      return []   # Возвращаем пустой список при ошибке
+
 
   async def _heartbeat(self, websocket: WebSocket):
     """
@@ -480,10 +501,17 @@ class WebSocketManager:
 
   async def _get_chat_members(self, chat_id: int) -> List[int]:
     """
-    Получение участников чата
+    Получение участников чата через ChatService
     """
 
-    pass 
+    try:
+      chat_service = ChatService()
+
+      return await chat_service.get_user_chats(chat_id)
+
+    except Exception as e:
+      logger.error(f"[Get Chat Members] Ошибка чата: {chat_id}: {e}")
+      return []
 
 
-websocket_manager = WebSocketManager()
+websocket_manager = WebSocketManager

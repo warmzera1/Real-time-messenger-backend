@@ -11,6 +11,7 @@ from app.models.chat import ChatRoom
 from app.models.participant import participants 
 from app.dependencies.auth import get_current_user
 from app.models.user import User 
+from app.services.chat_services import ChatService
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -90,22 +91,10 @@ async def get_user_chats(
 ):
   """
   Список чатов текущего пользователя
-  1. Получаем объект чатов
-  2. Присоединяем к объекту таблицу участников
-  3. Соединяем там, где ID совпадает с chat_id в таблице участников 
-  4. Фильтруем по конкретным участникам чата
-  5. Возвращаем список чатов
   """
 
-  stmt = (
-    select(ChatRoom)
-    .join(ChatRoom.participants)
-    .where(ChatRoom.participants.any(User.id == current_user["id"]))
-    .options(selectinload(ChatRoom.participants))
-    .order_by(desc(ChatRoom.created_at))
-  )
-  result = await db.execute(stmt)
-  chats = result.scalars().all()
+  chat_service = ChatService()
+  chats = await chat_service.get_user_chats(current_user["id"], db)
   return chats
 
 
