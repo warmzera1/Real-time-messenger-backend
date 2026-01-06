@@ -204,6 +204,7 @@ class MessageService:
         await db.close()
 
   
+  @staticmethod
   async def get_message_info(message_id: int) -> Optional[dict]:
     """
     Получить базовую информацию о сообщении
@@ -239,3 +240,55 @@ class MessageService:
     finally:
       if close_db and db:
         await db.close()
+
+
+  @staticmethod
+  async def create_and_distribute_message(
+    chat_id: int,
+    sender_id: int,
+    content: str,
+    db: AsyncSession
+  ):
+    """
+    Создать сообщение и рассылать через WebSocket
+    """
+    # 1. Сохраняем в БД
+    message = Message(
+      chat_id=chat_id,
+      sender_id=sender_id,
+      content=content,
+      delivered_at=datetime.utcnow()
+    )
+
+    db.add(message)
+    await db.flush()
+
+    # 2. Получаем участников чата
+    from app.services.chat_services import ChatService
+    chat_service = ChatService()
+    members = await chat_service.get_chat_members(chat_id, db)
+
+    # 3. Подготавливаем данные
+    message_data = {
+      "id": message.id,
+      "chat_id": message.chat_id,
+      "sender_id": message.sender_id,
+      "content": message.content,
+      "created_at": message.created_at,
+      "delivered_at": message.delivered_at.isoformat() if message.delivered_at else None
+    }
+
+    # 4. Отправляем через WebSocket
+    from app.websocket.manager import websocket_manager
+    
+    for member_id in members:
+      await websocket_manager.send_to_user(
+        member_id, {
+          "type": "new_message",
+          "chat_id": chat_id,
+          "message": message_data,
+        }
+      )
+
+    await db.commit()
+    return message

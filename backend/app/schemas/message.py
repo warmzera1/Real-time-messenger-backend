@@ -6,6 +6,7 @@ class MessageBase(BaseModel):
   """Схема сообщения"""
 
   content: str 
+  chat_id: int
 
 
 class MessageCreate(MessageBase):

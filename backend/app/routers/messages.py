@@ -9,51 +9,73 @@ from app.models.message import Message
 from app.models.participant import participants
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.websocket.manager import manager
+from app.websocket.manager import websocket_manager
+from app.services.message_service import create_and_distribute_message
+
 
 
 router = APIRouter(tags=["messages"])
 
-@router.post("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+# @router.post("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+# async def send_message(
+#   chat_id: int,
+#   message_data: MessageCreate,
+#   current_user: dict = Depends(get_current_user),
+#   db: AsyncSession = Depends(get_db),
+# ):
+#   """
+#   Отправка сообщений в чат
+#   """
+
+#   # 1. Проверяем, является ли пользователь участником конкретного чата
+#   result = await db.execute(
+#     select(participants).where(
+#       participants.c.user_id == current_user["id"],
+#       participants.c.chat_id == chat_id,
+#     )
+#   )
+
+#   # Если нет - ошибка
+#   if not result.first():
+#     raise HTTPException(
+#       status_code=status.HTTP_403_FORBIDDEN,
+#       detail="Вы не являетесь участником этого чата",
+#     )
+  
+#   # Создаем сообщение
+#   new_message = Message(
+#     chat_id=chat_id,
+#     sender_id=current_user["id"],
+#     content=message_data.content,
+#   )
+
+#   # Добавляем в БД и сохраняем
+#   db.add(new_message)
+#   await db.commit()
+#   await db.refresh(new_message)
+
+#   # Возвращаем новое сообщение
+#   return new_message
+
+
+@router.post("/", response_model=MessageResponse)
 async def send_message(
-  chat_id: int,
-  message_data: MessageCreate,
-  current_user: dict = Depends(get_current_user),
-  db: AsyncSession = Depends(get_db),
+  request: MessageCreate,
+  current_user: User = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db)
 ):
   """
-  Отправка сообщений в чат
+  Отправка сообщений
   """
 
-  # 1. Проверяем, является ли пользователь участником конкретного чата
-  result = await db.execute(
-    select(participants).where(
-      participants.c.user_id == current_user["id"],
-      participants.c.chat_id == chat_id,
-    )
-  )
-
-  # Если нет - ошибка
-  if not result.first():
-    raise HTTPException(
-      status_code=status.HTTP_403_FORBIDDEN,
-      detail="Вы не являетесь участником этого чата",
-    )
-  
-  # Создаем сообщение
-  new_message = Message(
-    chat_id=chat_id,
+  message = await create_and_distribute_message(
+    chat_id=request.chat_id,
     sender_id=current_user["id"],
-    content=message_data.content,
+    content=request.content,
+    db=db
   )
 
-  # Добавляем в БД и сохраняем
-  db.add(new_message)
-  await db.commit()
-  await db.refresh(new_message)
-
-  # Возвращаем новое сообщение
-  return new_message
+  return message
 
 
 @router.get("/{chat_id}/messages", response_model=List[MessageResponse])
