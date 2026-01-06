@@ -502,9 +502,95 @@ class WebSocketManager:
   async def _handle_read_receipt(self, user_id: int, message_id: int):
     """
     Обработка прочтения сообщения
+
+    Логика:
+    1. Помечаем сообщение как прочитанное из БД
+    2. Получаем отправителя сообщения
+    3. Отправляем отправителю уведомление о прочтении
     """
 
-    pass 
+    try:
+      from app.services.message_service import MessageService
+      message_service = MessageService()
+
+      # 1. Помечаем сообщение как прочитанное
+      marked = await message_service.mark_as_read(message_id, user_id)
+
+      if not marked:
+        # Сообщение уже прочитано
+        logger.debug(f"Сообщение {message_id} УЖЕ прочитано пользователем: {user_id}")
+        return 
+      
+      # 2. Получаем информацию о сообщение 
+      message_info = await message_service.get_message_info(message_id)
+
+      if not message_info:
+        logger.error(f"Сообщение {message_id} не найдено")
+        return 
+      
+      sender_id = message_info["sender_id"]
+      chat_id = message_info["chat_id"]
+
+      # 3. Отправляем уведомление отправителю (если он онлайн)
+      if sender_id != user_id:    # Не отправляем себе
+        await self.send_to_user(
+          sender_id, {
+            "type": "message_read",
+            "message_id": message_id,
+            "chat_id": chat_id, 
+            "reader_id": user_id,
+            "read_at": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat(),
+          }
+        )
+
+        logger.info(f"Уведомление о прочтении отправителю: сообщение {message_id}, "
+                    f"Читатель {user_id}, отправитель {sender_id}")
+        
+        # 4. Отправляем ВСЕМ в чате уведомдление (опционально)
+        # Например, для групповых чатов
+        await self._notify_chat_about_read(chat_id, message_id, user_id)
+
+    except Exception as e:
+      logger.error(f"[Handle Read Receipt] Ошибка: {e}")
+
+  
+  async def _notify_chat_about_read(
+      self,
+      chat_id: int,
+      message_id: int,
+      user_id: int,
+  ):
+    """
+    Уведомление участников чата о прочтении сообщения
+    (только для чатов с 2+ участников)
+    """
+
+    try:
+      # Получаем участников чата
+      chat_service = ChatService()
+
+      members = await chat_service.get_chat_members(chat_id)
+
+      if len(members) <= 2:
+        # Для личных чатов не уведомляем всех
+        return 
+      
+      # Уведомляем всех, кроме прочитавших
+      for member_id in members:
+        if member_id != user_id:
+          await self.send_to_user(
+            member_id, {
+              "type": "message_read_in_chat",
+              "message_id": message_id,
+              "chat_id": chat_id,
+              "reader_id": user_id,
+              "timestamp": datetime.utcnow().isoformat()
+            }
+          )
+
+    except Exception as e:
+      logger.error(f"[Notify Chat Read] Ошибка: {e}")
 
 
   async def _get_chat_members(self, chat_id: int) -> List[int]:
