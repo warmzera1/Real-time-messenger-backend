@@ -118,6 +118,7 @@ class RedisManager:
       logger.error(f"[remove_websocket_connections] Ошибка: {e}")
 
 
+   # ============ ХРАНЕНИЕ АКТИВНЫХ СОЕДИНЕНИЙ ПОЛЬЗОВАТЕЛЯ ============
   async def register_user_connection(self, user_id: int, ws_id: str, server_id: int):
     """
     Регистрация соединения пользователя
@@ -147,6 +148,7 @@ class RedisManager:
     await self.redis.hgetall(key)
 
 
+   # ============ Pub/Sub ============
   async def subscribe_to_chat_messages(self, user_id: int, chat_id: int):
     """
     Подписка пользователя на сообщения чата

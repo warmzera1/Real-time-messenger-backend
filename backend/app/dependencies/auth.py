@@ -4,11 +4,15 @@ from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select
 import json
+import logging
 
 from app.database import get_db 
 from app.models.user import User 
 from app.core.config import settings
 from app.redis import redis_manager
+
+
+logger = logging.getLogger(__name__)
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -88,3 +92,75 @@ async def get_current_user(
   
   # Возвращаем пользователя
   return user_data 
+
+
+async def get_current_user_ws(token: str) -> Optional[str]:
+  """
+  Аутентификация пользователя для WebSocket соединений
+  Без Depends() и HTTP контекста
+  """
+
+  try:
+    # 1. Декодируем токен
+    payload = jwt.decode(
+      token,
+      settings.SECRET_KEY,
+      algorithms=[settings.ALGORITHM]
+    )
+
+    user_id = payload.get("sub")
+    if not user_id:
+      logger.warning(f"[Get Current User WS]: У пользователя {user_id} нет JWT-токена")
+      return None 
+    
+    # 2. Пробуем Redis
+    try:
+      cached_user = await redis_manager.get_cached_user_profile(int(user_id))
+      if cached_user:
+        logger.debug(f"[Get Current User WS]: Пользователь {cached_user} из кеша")
+        return cached_user
+    
+    except Exception:
+      cached_user = None
+
+    # 3. Идем в БД (необходимо создать отдельную сессию)
+    from app.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+      from sqlalchemy import select 
+      from app.models.user import User 
+
+      result  = await db.execute(
+        select(User).where(User.id == int(user_id))
+      )
+      user = result.scalar_one_or_none() 
+
+      if not user:
+        logger.warning(f"[Get Current User WS]: Пользователь {user_id} не найден в БД")
+        return None 
+      
+      user_data = {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+      }
+
+      # 4. Кэшируем
+      try:
+        await redis_manager.cache_user_profile(
+          user.id,
+          user_data,
+          CACHE_TTL,
+        )
+      except Exception as e:
+        logger.warning(f"[Get Current User WS]: Ошибка кеширования пользователя: {e}")
+      
+      logger.info(f"[Get Current User WS]: Пользователь {user_id} аутентифицировался для WebSocket")
+      return user_data
+    
+  except JWTError as e:
+    logger.warning(f"JWT decode ошибка: {e}")
+    return None 
+  except Exception as e:
+    logger.error(f"WebSocket auth ошибка: {e}")
+    return None

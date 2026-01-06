@@ -185,61 +185,69 @@ class WebSocketManager:
     # Храним таски для heartbeat 
     self.heartbeat_tasks: Dict[WebSocket, asyncio.Task] = {}
 
+    # Для полных данных пользователя
+    self.user_data_by_ws: Dict[WebSocket, dict] = {}
+
     # Чат-сервис
     self.chat_service = ChatService()
 
 
-  async def connect(self, websocket: WebSocket, user: User): 
+  async def connect(self, websocket: WebSocket, user_data: dict): 
     """
     Подключение пользователя по WebSocket
 
     Args:
       websocket: WebSocket соединение
-      user: Авторизованный пользователь
+      user_data: {"id": 1, "username": "user", "email": "user@example.com"}
     """
 
     try:
-      # 1. Уникальный ID соединения
-      ws_id = str(uuid.uuid())[:8]
-      self.websocket_ids[websocket] = ws_id
+      # 1. Извлекаем user_id из словаря
+      user_id = user_data["id"]
 
-      # 2. Принимаем соединение
+      # 2. Уникальный ID соединения
+      ws_id = str(uuid.uuid4())[:8]
+      
+      # 3. Сохраняем маппинги
+      self.websocket_ids[websocket] = ws_id
+      self.user_data_by_ws[websocket] = user_data
+
+      # 4. Принимаем соединение
       await websocket.accept()
 
-      # 3. Сохраняем в локальное хранилище
-      user_id = user.id 
+      # 5. Сохраняем в локальное хранилище
       if user_id not in self.active_connections:
         self.active_connections[user_id] = set()
       self.active_connections[user_id].add(websocket)
       self.websocket_to_user[websocket] = user_id
 
-      # 4. Регистрируем в Redis
+      # 6. Регистрируем в Redis
       await redis_manager.register_user_connections(
         user_id=user_id,
         ws_id=ws_id,
         server_id="main",
       )
 
-      # 5. Подписываемся на события пользователя
+      # 7. Подписываемся на события пользователя
       await self._subscribe_to_user_events(user_id)
 
-      # 6. Запускаем heartbeat
+      # 8. Запускаем heartbeat
       self.heartbeat_tasks[websocket] = asyncio.create_task(
         self._heartbeat(websocket)
       )
 
-      logger.info(f"[WS Connect] Пользователь {user_id} присоединился, ws_id: {ws_id}")
+      logger.info(f"[WS Connect] Пользователь {user_id} ({user_data['username']}) присоединился, ws_id: {ws_id}")
 
-      # 7. Отправляем приветственное сообщение
+      # 9. Отправляем приветственное сообщение
       await self.send_personal({
         "type": "connection_established",
         "message": "WebSocket подключен успешно",
-        "user_id": user_id,
+        "user": user_data,
         "timestamp": datetime.utcnow().isoformat()
       }, websocket)
 
     except Exception as e:
-      logger.error(f"[WS Connect] Error: {e}")
+      logger.error(f"[WS Connect] Ошибка: {e}")
       raise
 
   async def disconnect(self, websocket: WebSocket):
@@ -514,4 +522,4 @@ class WebSocketManager:
       return []
 
 
-websocket_manager = WebSocketManager
+websocket_manager = WebSocketManager()
