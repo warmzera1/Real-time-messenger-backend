@@ -117,4 +117,62 @@ class RedisManager:
     except Exception as e:
       logger.error(f"[remove_websocket_connections] Ошибка: {e}")
 
+
+  async def register_user_connection(self, user_id: int, ws_id: str, server_id: int):
+    """
+    Регистрация соединения пользователя
+    """
+
+    # Ключ: user_connections:{user_id}
+    key = f"user_connections:{user_id}"
+    await self.redis.hset(key, ws_id, server_id)
+    await self.redis.expire(key, 3600)  # TTL 1 чаc
+
+  
+  async def unregister_user_connection(self, user_id: int, ws_id: str):
+    """
+    Удаление соединения пользователя
+    """
+
+    key = f"user_connections:{user_id}"
+    await self.redis.hdel(key, ws_id)
+
+
+  async def get_user_connections(self, user_id: int) -> Dict[str, str]:
+    """
+    Получение всех соединений пользователя
+    """
+
+    key = f"user_connections:{user_id}"
+    await self.redis.hgetall(key)
+
+
+  async def subscribe_to_chat_messages(self, user_id: int, chat_id: int):
+    """
+    Подписка пользователя на сообщения чата
+    """
+
+    key = f"user_subscriptions:messages:{user_id}"
+    await self.redis.sadd(key, str(chat_id))
+
+
+  async def publish_chat_message(self, chat_id: int, message_data: dict):
+    """
+    Публикация нового сообщения
+    """
+
+    channel = f"chat:{chat_id}:messages"
+    await self.redis.publish(channel, json.dumps(message_data))
+
+  
+  async def publish_user_updates(self, user_id: int, update_data: dict):
+    """
+    Публикация обновления пользователя
+    """
+
+    channel = f"user:{user_id}:updates"
+    await self.redis.publish(channel, json.dumps(update_data))
+
+
+
 redis_manager = RedisManager()
