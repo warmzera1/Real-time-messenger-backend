@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select
 from typing import List
@@ -14,7 +14,7 @@ from app.services.message_service import create_and_distribute_message
 
 
 
-router = APIRouter(tags=["messages"])
+router = APIRouter(prefix="/messages", tags=["messages"])
 
 # @router.post("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 # async def send_message(
@@ -61,7 +61,7 @@ router = APIRouter(tags=["messages"])
 @router.post("/", response_model=MessageResponse)
 async def send_message(
   request: MessageCreate,
-  current_user: User = Depends(get_current_user),
+  current_user: dict = Depends(get_current_user),
   db: AsyncSession = Depends(get_db)
 ):
   """
@@ -78,9 +78,9 @@ async def send_message(
   return message
 
 
-@router.get("/{chat_id}/messages", response_model=List[MessageResponse])
+@router.get("/", response_model=List[MessageResponse])
 async def get_messages(
-  chat_id: int,
+  chat_id: int = Query(..., description="ID чата"),
   current_user: dict = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
   limit: int = 50,
@@ -118,3 +118,46 @@ async def get_messages(
 
   # Возвращаем ответ с сообщениями
   return messages 
+
+
+@router.get("/{message_id}/read-status")
+async def get_message_read_status(
+  message_id: int,
+  current_user: dict = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db),
+):
+  """
+  Получение информации о том, кто прочитал сообщение
+  """
+
+  from app.services.message_service import MessageService
+
+  # Проверяем, что пользователь имеет доступ к сообщению
+  stmt = select(Message).where(Message.id == message_id)
+  result = await db.execute(stmt)
+  message = result.scalar_one_or_none()
+
+  if not message:
+    raise HTTPException(
+      status_code=404,
+      detail="Сообщение не найдено",
+    )
+  
+  # Проверяем, что пользователь участник чата
+  is_participant = await db.execute(
+    select(participants).where(
+      participants.c.user_id == current_user["id"],
+      participants.c.chat_id == message.chat_id,
+    )
+  )
+
+  if not is_participant.first():
+    raise HTTPException(
+      status_code=403,
+      detail="Нет доступа",
+    )
+  
+  # Получаем статус прочтения
+  read_status = await MessageService.get_message_read_status(message_id, db)
+
+  return read_status

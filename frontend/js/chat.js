@@ -5,6 +5,7 @@ let currentUser = null; // Данные текущего авторизован�
 let currentChat = null; // Текущий выбранный чат
 let chats = []; // Массив всех чатов пользователя
 let ws = null; // WebSocket соединение
+let globalWs = null; // Глобальное WebSocket соединение
 
 // Инициализация при запуске страницы
 document.addEventListener("DOMContentLoaded", async function () {
@@ -33,6 +34,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 async function loadCurrentUser() {
   try {
     const user = await apiRequest("/users/me", "GET");
+    await connectGlobalWebSocket();
     return user;
   } catch (error) {
     console.error("Ошибка загрузки пользователя:", error);
@@ -149,10 +151,7 @@ async function selectChat(chatId) {
   // 5. Обновляем заголовок чата (имя собеседника, аватар и т.д)
   updateChatHeader();
 
-  // 6. Подключаемся к WebSocket этого чата
-  connectWebSocket(chatId);
-
-  // 7. Показываем блок ввода сообщения (был скрыт на экране логина)
+  // 6. Показываем блок ввода сообщения (был скрыт на экране логина)
   document.getElementById("inputArea").style.display = "flex";
 }
 
@@ -160,11 +159,21 @@ async function selectChat(chatId) {
 async function loadChatHistory(chatId) {
   try {
     // GET-запрос к API для получения всех сообщений конкретного чата
-    const messages = await apiRequest(`/${chatId}/messages`, `GET`);
+    const messages = await apiRequest(`/messages/chat_id=${chatId}`, `GET`);
     console.log("Загружено сообщений:", messages.length);
 
     // Отрисовываем полученные сообщения в контейнере
     renderMessages(messages);
+
+    // Помечаем все сообщения как прочитанные
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      globalWs.send(
+        JSON.stringify({
+          type: "read_chat",
+          chat_id: chatId,
+        })
+      );
+    }
   } catch (error) {
     // Логируем ошибку
     console.error("Ошибка загрузки сообщений:", error);
@@ -205,10 +214,20 @@ function renderMessages(messages) {
       return `
         <div class="message ${
           isOutgoing ? "message-outgoing" : "message-incoming"
-        }">
-          <div>${msg.content}</div>
-          <div style="font-size: 12px; margin-top: 5px; text-align: right;">${time}</div>
+        }" 
+           data-message-id="${msg.id}">
+        <div class="message-content">${msg.content}</div>
+        <div class="message-time">
+          ${time}
+          ${
+            isOutgoing
+              ? '<span class="read-status" id="read-status-' +
+                msg.id +
+                '"></span>'
+              : ""
+          }
         </div>
+      </div>
     `;
     })
     .join(""); // Объеденяем все строки без разделителя
@@ -218,6 +237,9 @@ function renderMessages(messages) {
 
   // Автоматически прокручиваем вниз, чтобы видно было последнее сообщение
   container.scrollTop = container.scrollHeight;
+
+  // После рендера, если есть информация о прочтении, обновляем галочки
+  updateReadStatuses(messages);
 }
 
 // 7. Функция настройки всех обработчиков событий на странице
@@ -284,8 +306,9 @@ async function sendMessage() {
   if (!content) return;
 
   try {
-    const newMessage = await apiRequest(`/${currentChat.id}/messages`, "POST", {
+    const newMessage = await apiRequest(`/messages`, "POST", {
       content: content, // Текст сообщения
+      chat_id: currentChat.id, // Конкретный чат
     });
 
     console.log("Сообщение отправлено:", newMessage);
@@ -298,11 +321,12 @@ async function sendMessage() {
     moveChatToTop(currentChat.id);
 
     // Если WebSocket подключен, отправляем сообщение другим участникам
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      globalWs.send(
         JSON.stringify({
-          type: "message",
-          content: content,
+          type: "typing",
+          chat_id: currentChat.id,
+          is_typing: false,
         })
       );
     }
@@ -452,55 +476,110 @@ function updateChatHeader() {
   `;
 }
 
-// 15. WebSocket подключение
-function connectWebSocket(chatId) {
-  // Закрываем предыдущее соединение
-  if (ws) {
-    ws.close(); // Закрываем старое соединение
-  }
+// // 15. WebSocket подключение
+// function connectWebSocket(chatId) {
+//   // Закрываем предыдущее соединение
+//   if (ws) {
+//     ws.close(); // Закрываем старое соединение
+//   }
 
-  // Получаем токен из localStorage
+//   // Получаем токен из localStorage
+//   const token = localStorage.getItem("access_token");
+//   if (!token) {
+//     console.error("Токен не найден в localStorage");
+//     return;
+//   }
+
+//   // Подключаемся к WebSocket конкретного чата
+//   const wsUrl = `ws://localhost:8000/ws?token=${encodeURIComponent(token)}`;
+//   ws = new WebSocket(wsUrl);
+
+//   ws.onopen = function () {
+//     console.log(`WebSocket подключен`);
+//   };
+
+//   ws.onmessage = function (event) {
+//     try {
+//       const data = JSON.parse(event.data);
+//       console.log("WebSocket сообщение:", data);
+
+//       if (
+//         data.type === "message" &&
+//         data.message.sender_id !== currentUser.id
+//       ) {
+//         // Добавляем новое сообщение
+//         addMessageToUI(data.message);
+//       } else if (data.type === "system") {
+//         console.log("Системное сообщение:", data.message);
+//       }
+//     } catch (error) {
+//       console.error("Ошибка парсинга WebSocket сообщения:", error);
+//     }
+//   };
+
+//   ws.onerror = function (error) {
+//     console.error("WebSocket ошибка:", error);
+//   };
+
+//   ws.onclose = function (error) {
+//     console.error("WebSocket отключен");
+//   };
+// }
+
+// 15. Асинхронная функция WebSocket подключения
+async function connectGlobalWebSocket() {
   const token = localStorage.getItem("access_token");
   if (!token) {
-    console.error("Токен не найден в localStorage");
+    console.error("Токен не найден");
     return;
   }
 
-  // Подключаемся к WebSocket конкретного чата
-  const wsUrl = `ws://localhost:8000/ws/${chatId}?token=${encodeURIComponent(
-    token
-  )}`;
-  ws = new WebSocket(wsUrl);
+  // Закрываем предыдущее соединение
+  if (globalWs) {
+    globalWs.close();
+  }
 
-  ws.onopen = function () {
-    console.log(`WebSocket подключен к чату: ${chatId}`);
+  // Подключаемся ОДИН РАЗ ко всему приложению
+  const wsUrl = `ws://localhost:8000/ws?token=${encodeURIComponent(token)}`;
+  globalWs = new WebSocket(wsUrl);
+
+  globalWs.onopen = function () {
+    console.log("Глобальный WebSocket подключен");
+
+    // Запрашиваем непрочитанные сообщения
+    if (currentChat) {
+      globalWs.send(
+        JSON.stringify({
+          type: "get_unread",
+          chat_id: currentChat.id,
+        })
+      );
+    }
   };
 
-  ws.onmessage = function (event) {
+  globalWs.onmessage = function (event) {
     try {
       const data = JSON.parse(event.data);
       console.log("WebSocket сообщение:", data);
 
-      if (
-        data.type === "message" &&
-        data.message.sender_id !== currentUser.id
-      ) {
-        // Добавляем новое сообщение
-        addMessageToUI(data.message);
-      } else if (data.type === "system") {
-        console.log("Системное сообщение:", data.message);
-      }
+      // Обрабатываем разные типы сообщений
+      handleWebSocketMessage(data);
     } catch (error) {
-      console.error("Ошибка парсинга WebSocket сообщения:", error);
+      console.error("Ошибка парсинга WebSocket", error);
     }
   };
 
-  ws.onerror = function (error) {
+  globalWs.onerror = function (error) {
     console.error("WebSocket ошибка:", error);
   };
 
-  ws.onclose = function (error) {
-    console.error("WebSocket отключен");
+  globalWs.onclose = function () {
+    console.log("WebSocket отключен, переподключение через 3 секунды...");
+    setTimeotu(() => {
+      if (currentUser) {
+        connectGlobalWebSocket();
+      }
+    }, 3000);
   };
 }
 
@@ -510,15 +589,59 @@ function handleWebSocketMessage(data) {
 
   switch (data.type) {
     case "new_message":
-      if (data.message.chat_id === currentChat?.id) {
-        // Добавляем новое сообщение в текущий чат
-        addMessageToUI(data.message);
+      // Получаем сообщение из любого чата
+      const message = data.message;
+
+      // Если это сообщение в текущем открытом чате
+      if (currentChat && message.chat_id === currentChat.id) {
+        addMessageToUI(message);
+
+        // Отправляем подтверждение о прочтении
+        if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+          globalWs.send(
+            JSON.stringify({
+              type: "read_receipt",
+              message_id: message.id,
+            })
+          );
+        }
+      } else {
+        // Сообщение из другого чата - показываем уведомление
+        showNotification(data);
       }
       break;
 
     case "chat_updated":
       // Обновляем информацию о чате
       updateChatInfo(data.chat);
+      break;
+
+    case "user_typing":
+      // Кто-то печатает в чате
+      if (currentChat && data.chat_id === currentChat.id) {
+        showTypingIndicator(data.user_id);
+      }
+      break;
+
+    case "message_read":
+      // Кто-то прочитал ВАШЕ сообщение
+      handleMessageRead(data);
+      break;
+
+    case "notification":
+      // Системное уведомление
+      showSystemNotification(data.message);
+      break;
+
+    case "ping":
+      // Heartbeat - отправляем PONG
+      if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+        globalWs.send(
+          JSON.stringify({
+            type: "pong",
+          })
+        );
+      }
       break;
 
     default:
@@ -710,6 +833,126 @@ function moveChatToTop(chatId) {
   chats.unshift(chat);
 
   renderChatList();
+}
+
+// 23. Функция показа уведомления о новых сообщениях
+function showNotification(data) {
+  // Находим название чата
+  const chat = chats.find((c) => c.id === data.message.chat_id);
+  let chatName = chat ? chatName || "Новый чат" : "Новый чат";
+
+  // Проверяем проверку браузерных уведомлений
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification(`Новое сообщение в ${chatName}`, {
+      body: data.message.content,
+      icon: "/favicon.ico",
+    });
+  }
+
+  // Или показываем уведомление в интерфейсе
+  const notification = document.createElement("div");
+  notification.classNmae = "message-notification";
+  notification.innerHTML = `
+  <strong>${chatName}</strong>
+  <p>${data.message.content}</p>
+  `;
+
+  document.body.appendChild(notification);
+  setTimeout(() => notification.remove(), 5000);
+}
+
+// 24. Функция индикатор "печатает..."
+function showTypingIndicator(userId) {
+  // Находим имя пользователя
+  const chat = currentChat;
+  const user = chat.participants?.find((p) => p.id === userId);
+  const userName = user ? user.username : "Кто-то";
+
+  // Показываем индикатор
+  const indicator =
+    document.getElementById("typingIndicator") ||
+    (() => {
+      const div = document.createElement("div");
+      div.id = "typingIndicator";
+      document.getElementById("messagesContainer").appendChild(div);
+      return div;
+    })();
+
+  indicator.textContent = `${userName} печатает...`;
+  indicator.style.display = "block";
+
+  // Скрываем через 3 секунды
+  clearTimeout(window.typingTimeout);
+  window.typingTimeout = setTimeout(() => {
+    indicator.style.display = "none";
+  }, 3000);
+}
+
+// 25. Функция обработки сообщений
+function handleMessageRead(data) {
+  // Находим сообщение в UI и отмечаем как прочитанное
+  const messages = document.querySelectorAll(".message-outgoing");
+  messages.forEach((msg) => {
+    // Проверяем по data-атрибуту или по содержимому
+    const messageId =
+      msg.dataset.messageId || msg.querySelector(".message-id")?.textContent;
+
+    if (messageId && messageId == data.messageId) {
+      // Добавляем галочки
+      const timeElement = msg.querySelector(".message-time");
+      if (timeElement && !timeEleeemnt.querySelector(".read-status")) {
+        const readStatus = document.createElement("span");
+        readStatus.className = "read-status";
+        readStatus.innerHTML = "✅";
+
+        // Если прочитал получатель (для личных чатов)
+        if (data.reader_in !== currentUser.id) {
+          readStatus.innerHTML = "✅✅";
+          readStatus.title = `Прочитано ${new Date(
+            data.read_at
+          ).toLocaleTimeString()}`;
+        }
+
+        timeElement.appendChild(readStatus);
+      }
+
+      // Меняем стиль сообщения
+      msg.classList.add("read");
+    }
+  });
+}
+
+// 26. Функция обновления статуса прочтения сообщения
+async function updateReadStatuses(messages) {
+  // Для каждого нашего сообщения проверяем статус прочтения
+  const ourMessages = messages.filter((m) => m.sender_id === currentUser.id);
+
+  for (const msg of ourMessages) {
+    try {
+      const readStatus = await apiRequest(
+        `/messages/${msg.id}/read-status`,
+        "GET"
+      );
+
+      if (readStatus && readStatus.length > 0) {
+        // Кто-то прочитал наше сообщение
+        const lastRead = readStatus[readStatus.length - 1];
+
+        // Обновляем галочку в UI
+        const statusElement = document.getElementById(`read-status-${msg.id}`);
+        if (statusElement) {
+          statusElement.innerHTML = "✅✅";
+          statusElement.title = `Прочитано ${new Date(
+            lastRead.read_at
+          ).toLocaleTimeString()}`;
+        }
+      }
+    } catch (error) {
+      console.log(
+        `Не удалось получить статус прочтения для сообщения ${msg.id}`
+      );
+    }
+  }
 }
 
 const debouncedSearchUsers = debounce(searchUsers, 400);
