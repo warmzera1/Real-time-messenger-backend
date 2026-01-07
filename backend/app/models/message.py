@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func 
 from datetime import datetime
@@ -39,7 +39,7 @@ class MessageRead(Base):
   __tablename__ = "message_reads"
 
   id = Column(Integer, primary_key=True, index=True)
-  message_id = Column(Integer, ForeignKey("message.id"), nullable=False)
+  message_id = Column(Integer, ForeignKey("messages.id"), nullable=False)
   user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
   read_at = Column(DateTime, default=datetime.utcnow)
 

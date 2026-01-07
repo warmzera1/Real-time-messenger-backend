@@ -26,6 +26,7 @@ class User(Base):
     lazy="selectin",
   )
 
+  sent_messages = relationship("Message", back_populates="sender")
   read_messages= relationship(
     "MessageRead", back_populates="user",
   )

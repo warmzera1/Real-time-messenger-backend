@@ -22,3 +22,5 @@ class ChatRoom(Base):
     back_populates="chats",     # Обратная ссылка в User
     lazy="selectin",
   )
+
+  messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
