@@ -10,6 +10,7 @@ from app.utils.json_encoder import json_dumps
 from app.redis.manager import redis_manager
 from app.models.user import User
 from app.services.chat_services import ChatService
+from app.redis.redis_subscriber import get_redis_subscriber
 
 
 
@@ -90,9 +91,14 @@ class WebSocketManager:
         self._heartbeat(websocket)
       )
 
-      logger.info(f"[WS Connect] Пользователь {user_id} ({user_data['username']}) присоединился, ws_id: {ws_id}")
+      # 9. Подписываем пользователя на Redis события
+      subscriber = get_redis_subscriber()
+      await subscriber.subscribe_user(user_id)
 
-      # 9. Отправляем приветственное сообщение
+      logger.info(f"[WS Connect] Пользователь {user_id} ({user_data['username']}) присоединился, ws_id: {ws_id}")
+      logger.info(f"[WS Connect] Пользователь {user_id} подключен к WebSocket и подписан")
+
+      # 10. Отправляем приветственное сообщение
       await self.send_personal({
         "type": "connection_established",
         "message": "WebSocket подключен успешно",
@@ -135,12 +141,17 @@ class WebSocketManager:
       if websocket in self.websocket_ids:
         del self.websocket_ids[websocket]
 
-      # 4. Удаляем из Radis
+      # 4. Удаляем из Redis
       if user_id and ws_id:
         await redis_manager.unregister_user_connection(
           user_id=user_id,
           ws_id=ws_id,
         )
+
+      # 5. Отписываем пользователя
+      if user_id:
+        subscriber = get_redis_subscriber()
+        await subscriber.unsubscribe_user(user_id)
 
       logger.info(f"[WS Disconnect] Пользователь {user_id} отключился, ws_id: {ws_id}")
 
