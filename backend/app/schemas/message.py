@@ -1,12 +1,13 @@
-from pydantic import BaseModel, ConfigDict, field_serializer
-from datetime import datetime 
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from datetime import datetime
+from typing import Optional
 
 
 class MessageBase(BaseModel):
   """Схема сообщения"""
 
-  content: str 
-  chat_id: int
+  content: str = Field(min_length=1, max_length=2000)
+  chat_id: int = Field(gt=0)
 
 
 class MessageCreate(MessageBase):
@@ -22,12 +23,13 @@ class MessageResponse(BaseModel):
   chat_id: int
   sender_id: int
   content: str 
-  created_at: datetime 
+  created_at: datetime
+  delivered_at: Optional[datetime] = None
 
     
   # Комбинированная конфигурация
   model_config = ConfigDict(
-      from_attributes=True,  # Для работы с ORM объектами (ранее orm_mode)
+      from_attributes=True,  # Для работы с ORM объектами
       str_strip_whitespace=True,
       validate_assignment=True,
   )

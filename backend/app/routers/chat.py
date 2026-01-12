@@ -1,126 +1,89 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import and_, func, select, desc
-from sqlalchemy.orm import selectinload
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.ext.asyncio import AsyncSession 
+from sqlalchemy import select
+from typing import List 
 
 from app.database import get_db 
-from app.schemas.chat import ChatRoomCreate, ChatRoomResponse
-from app.schemas.user import UserResponse
-from app.models.chat import ChatRoom
-from app.models.participant import participants 
+from app.schemas.chat import ChatRoomCreate, ChatRoomResponse, ChatRoomIdResponse
+from app.schemas.user import UserResponse 
 from app.dependencies.auth import get_current_user
 from app.models.user import User 
-from app.services.chat_services import ChatService
-
+from app.services.chat_service import ChatService 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 @router.post("/", response_model=ChatRoomResponse)
 async def create_chat(
   chat_data: ChatRoomCreate,
-  response: Response,
-  current_user: dict = Depends(get_current_user),
+  current_user: User = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
 ):
   """
-  Создание чата (личного)
+  Создание личного чата
+  Возвращает существующий чат, если он УЖЕ есть
   """
 
-  # 1. Проверка, что второй пользователь не текущий
-  if chat_data.second_user_id == current_user["id"]:
+  # Валидация
+  if chat_data.second_user_id == current_user.id:
     raise HTTPException(
       status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Нельзя создавать чат с самим собой",
+      detail="Нельзя создать чат с самим собой",
     )
   
-  # 2. Проверка существования второго пользователя
-  result = await db.execute(
-    select(User).where(User.id == chat_data.second_user_id)
-  )
-  second_user = result.scalar_one_or_none()
-  
-  # 3. Если нет - ошибка
-  if not second_user:
+  # Проверка существования пользователя
+  stmt = select(User).where(User.id == chat_data.second_user_id)
+  result = await db.execute(stmt)
+  if not result.scalar_one_or_none():
     raise HTTPException(
       status_code=status.HTTP_404_NOT_FOUND,
       detail="Пользователь не найден",
     )
   
-  # 4. Поиск существующего личного чата
-  stmt = (
-    select(ChatRoom)
-    .join(participants)
-    .where(ChatRoom.is_group == False)
-    .where(participants.c.user_id.in_([current_user["id"], chat_data.second_user_id]))
-    .group_by(ChatRoom.id)
-    .having(func.count(participants.c.user_id.distinct()) == 2)
+  # Поиск или создание чата через сервис
+  chat = await ChatService.find_or_create_private_chat(
+    user1_id=current_user.id,
+    user2_id=chat_data.second_user_id,
+    db=db,
   )
-  result = await db.execute(stmt)
-  existing_chat = result.scalar_one_or_none()
 
-  # 5. Если найден - возвращаем существующий чат
-  if existing_chat:
-    response.status_code = status.HTTP_200_OK
-    return existing_chat
+  if not chat:
+    raise HTTPException(
+      status_code=status.HTTP_500_INTERNAl_SERVER_ERROR,
+      detail="Не удалось создать чат"
+    )
   
-  # 6. Если нет - создаем
-  new_chat = ChatRoom(name=None, is_group=False)
-  db.add(new_chat)
-  await db.commit()
-  await db.refresh(new_chat)
-
-  # 7. Добавляем обоих участников в БД
-  stmt = select(User).where(User.id.in_([current_user["id"], chat_data.second_user_id]))
-  result = await db.execute(stmt)
-  users = result.scalars().all()
-
-  new_chat.participants.extend(users)
-  await db.commit()
-  await db.refresh(new_chat, ["participants"])
-
-  response.status_code = status.HTTP_201_CREATED
-  # 8. Возвращаем чат
-  return new_chat
+  return chat
 
 
-@router.get("/", response_model=List[ChatRoomResponse])
+@router.get("/", response_model=List[ChatRoomIdResponse])
 async def get_user_chats(
   current_user: User = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
 ):
   """
-  Список чатов текущего пользователя
+  Список чатов пользователя
   """
 
-  chat_service = ChatService()
-  chats = await chat_service.get_user_chats(current_user["id"], db)
-  return chats
+  chats = await ChatService.get_user_chat_ids(current_user.id, db)
+  return [{"id": chat_id} for chat_id in chats]
 
 
 @router.get("/search", response_model=List[UserResponse])
 async def search_users(
-  q: str = Query(..., min_length=2, description="Поисковой запрос"),
-  current_user: dict = Depends(get_current_user),
+  q: str = Query(..., min_length=2, description="Поиск пользователя"),
+  current_user: User = Depends(get_current_user),
   db: AsyncSession = Depends(get_db),
-  limit: int = 20,
+  limit: int = Query(20, ge=1, le=100)
 ):
-  """Поиск пользователей по username (исключая текущего)"""
+  """
+  Поиск пользователя (исключая текущего)
+  """
 
-  stmt = (
-    select(User)
-    .where(User.username.ilike(f"%{q}%"))
-    .where(User.id != current_user["id"])
-    .limit(limit)
+  users = await ChatService.search_users(
+    query=q,
+    exclude_user_id=current_user.id,
+    limit=limit,
+    db=db,
   )
 
-  result = await db.execute(stmt)
-  users = result.scalars().all()
   return users
-
-
-
-
-
-
-

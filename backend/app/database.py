@@ -1,5 +1,5 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker 
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from contextlib import asynccontextmanager
 from app.core.config import settings 
 
 
@@ -13,7 +13,7 @@ engine = create_async_engine(
 )
 
 # Session для async
-AsyncSessionLocal = sessionmaker(
+AsyncSessionLocal = async_sessionmaker(
   bind=engine,
   class_=AsyncSession,
   expire_on_commit=False,
@@ -21,10 +21,14 @@ AsyncSessionLocal = sessionmaker(
   autocommit=False,
 )
 
-# Контекстный менеджер для зависимостей
+# Для FastAPI Depends
 async def get_db() -> AsyncSession:
   async with AsyncSessionLocal() as session:
-    try:
-      yield session
-    finally:
-      await session.close()
+    yield session
+
+
+# Для WebSocket / background / services
+@asynccontextmanager
+async def get_db_session():
+  async with AsyncSession() as session:
+    yield session 

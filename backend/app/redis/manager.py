@@ -1,180 +1,412 @@
-from redis.asyncio import Redis 
-from typing import Optional, Set, Dict 
-import json 
+import json
 import logging 
+import asyncio 
+from typing import Optional, Set, Dict 
 from datetime import datetime 
 
+from redis.asyncio import Redis, ConnectionPool 
+from redis.exceptions import RedisError, ConnectionError
 
 logger = logging.getLogger(__name__)
 
 
 class RedisManager:
   """
-  Менеджер для асинхронной работы с Redis
+  Redis менеджер
+  1. Управление подключениями с retry логикой
+  2. Pub/Sub для сообщения между инстансами
+  3. Хранение сессий и онлайн-статусами
+  4. Graceful degradation при падении Redis
   """
 
-  def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
-    """
-    Инициализация подключения к Redis
-    Подключаемся к базе данных в памяти
-    """
-
-    self.redis = Redis(
+  def __init__(
+      self,
+      host: str = "localhost",
+      port: int = 6379,
+      db: int = 0,
+      max_connections: int = 20,
+  ):
+    # Connection pool вместо одного соединения
+    self.pool = ConnectionPool(
       host=host,
       port=port,
       db=db,
-      decode_responses=True,      # Автоматически декодируем bytes -> str
-      socket_keepalive=True,     #  Поддержание соединения
+      max_connections=max_connections,
+      decode_responses=True,
+      socket_keepalive=True,
+      retry_on_timeout=True,
     )
+
+    self.redis = Redis(connection_pool=self.pool)
+    self._websocket_manager = None 
+
+    # Pub/Sub состояние
+    self._pubsub = None
+    self._listening = False 
+    self._listener_task: Optional[asyncio.Task] = None 
+
+    # Кэш онлайн-статуса (оптимизация)
+    self._online_cache: Dict[int, bool] = {}
+    self._cache_ttl = 30        # Секунд
+    self._last_cache_update: Dict[int, float] = {}
+
+    # Метрики
+    self.metrics = {
+      "messages_published": 0,
+      "messages_received": 0,
+      "subscriptions": 0,
+      "errors": 0,
+      "reconnects": 0,
+    }
+
     logger.info(f"RedisManager инициализирован: {host}:{port}")
 
 
-  async def connect(self):
-    """
-    Проверка подключения к Redis
-    """
+  async def connect(self) -> bool:
+    """Проверка подключений с retry"""
 
     try:
-      # Отправляем PING и ждем PONG
-      pong = await self.redis.ping()
-      if pong:
-        logger.info(f"[connect] Redis подключен")
-        return True
+      await self.redis.ping()
+      logger.info("Redis подключен")
+      return True 
+    
+    except RedisError as e:
+      logger.error(f"Не удалось подключиться к Redis: {e}")
+      return False 
+    
+
+  # ============ СЕССИИ И ПОДПИСКИ ============
+
+  async def add_user_session(self, user_id: int, session_id: str):
+    """Добавление сессии пользователя"""
+
+    try:
+      key = f"user:sessions:{user_id}"
+      await self.redis.sadd(key, session_id)
+      await self.redis.expire(key, 3600)      # 1 час
+
+      # Обновляем онлайн статус
+      await self._set_user_online(user_id)
+  
+    except RedisError as e:
+      logger.error(f"Ошибка добавления сессии: {e}")
+      self.metrics["errors"] += 1
+
+
+  async def remove_user_connection(self, user_id: int, session_id: str):
+    """Удалении сессии пользователя"""
+
+    try:
+      key = f"user:sessions:{user_id}"
+      await self.redis.srem(key, session_id)
+
+      # Если сессии не осталось - пользователь оффлайн
+      remaining = await self.redis.scard(key)
+      if remaining == 0:
+        await self._set_user_offline(user_id)
+
+    except RedisError as e:
+      logger.error(f"Ошибка удаления сессии: {e}")
+      self.metrics["errors"] += 1
+
+  
+  async def is_user_online(self, user_id: int) -> bool:
+    """Проверка онлайн-статуса с кэшированием"""
+
+    # Проверяем кэш
+    current_time = datetime.utcnow().timestamp()
+    last_update = self._last_cache_update.get(user_id, 0)
+
+    if user_id in self._online_cache and (current_time - last_update) < self._cache_ttl:
+      return self._online_cache[user_id]
+    
+    # Получаем из Redis
+    try:
+      key = f"user:sessions:{user_id}"
+      has_sessions = await self.redis.exists(key)
+
+      # Обновляем кэш
+      self._online_cache[user_id] = bool(has_sessions)
+      self._last_cache_update[user_id] = current_time 
+
+      return bool(has_sessions)
+    
+    except RedisError:
+      # При ошибке Redis возвращаем значение из кэша или False
+      return self._online_cache.get(user_id, False)
+    
+
+  async def _set_user_online(self, user_id: int):
+    """Установить статус онлайн"""
+
+    try:
+      await self.redis.setex(f"user:online:{user_id}", 65, "1")     # TTL > heartbeat interval
+      self._online_cache[user_id] = True 
+      self._last_cache_update[user_id] = datetime.utcnow().timestamp()
+    
+    except RedisError as e:
+      logger.error(f"Ошибка setting user {user_id} online: {e}")
+
+
+  async def _set_user_offline(self, user_id: int):
+    """Установить статус оффлайн"""
+
+    try:
+      await self.redis.delete(f"user:online:{user_id}")
+      self._online_cache[user_id] = False 
+      self._last_cache_update[user_id] = datetime.utcnow().timestamp()
+    
+    except RedisError:
+      pass
+
+
+  # ============ ПОДПИСКИ НА ЧАТЫ ============
+
+  async def subscribe_to_chat(self, user_id: int, chat_id: int):
+    """Подписать пользователя на чат"""
+
+    try:
+      key = f"chat:subscribers:{chat_id}"
+      await self.redis.sadd(key, str(user_id))
+      await self.redis.expire(key, 7200)    # 2 чата
+
+      # Для быстрого поиска чатов пользователя
+      user_chats_key = f"user:chats:{user_id}"
+      await self.redis.sadd(user_chats_key, str(chat_id))
+      await self.redis.expire(user_chats_key, 7200)  
+
+      self.metrics["subscriptions"] += 1
+      logger.debug(f"Пользователь {user_id} подписан на чат {chat_id}")
+
+    except RedisError as e:
+      logger.error(f"Ошибка подписки: {e}")
+      self.metrics["errors"] += 1
+
+
+  async def unsubscribe_from_chat(self, user_id: int, chat_id: int):
+    """Отписать пользователя от чата"""
+
+    try:
+      key = f"chat:subscribers:{chat_id}"
+      await self.redis.srem(key, str(user_id))
+
+      # Обновляем список чатов пользователя
+      user_chats_key = f"user:chats:{user_id}"
+      await self.redis.srem(user_chats_key, str(chat_id))
+
+      logger.debug(f"Пользователь {user_id} отписан от чата {chat_id}")
+
+    except RedisError as e:
+      logger.error(f"Ошибка отписки: {e}")
+      self.metrics["errors"] += 1
+
+
+  async def get_chat_subscribers(self, chat_id: int) -> Set[str]:
+    """Получить подписчиков чата"""
+
+    try:
+      key = f"chat:subscribers:{chat_id}"
+      subscribers = await self.redis.smembers(key)
+      return subscribers 
+
+    except RedisError:
+      return set()
+    
+
+  # ============ PUB/SUB ДЛЯ СООБЩЕНИЙ ============  
+
+  async def publish_chat_message(
+    self,
+    chat_id: int,
+    message_data: dict,
+    retries: int = 2,
+  ) -> bool:
+    """
+    Публикация сообщения в чате с retry логикой
+    Возвращает True при успехе
+    """
+
+    for attempt in range(retries + 1):
+      try:
+        channel = f"chat:messages:{chat_id}"
+        await self.redis.publish(channel, json.dumps(message_data))
+        return True 
       
-    except Exception as e:
-      logger.error(f"[connect] Ошибка при подключении к Redis: {e}")
-      return False
-    
+      except RedisError as e:
+        if attempt == retries:
+          logger.error(f"Не удалось опубликовать сообщение после {retries} попыток: {e}")
+          self.metrics["errors"] += 1
+        else:
+          logger.warning(f"Попытка {attempt + 1} публикация не удалась: {e}")
+          await asyncio.sleep(0.5 * (attempt + 1))
 
-  # ============ ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ ============   
-  async def cache_user_profile(self, user_id: int, user_data: dict, ttl: int = 60):
-    """
-    Кэшируем профиль пользователя
-    ttl = Time To Live (время жизни кэша в секундах)
-    """
-    
-    cache_key = f"user:profile:{user_id}"
-    try:
-      await self.redis.setex(
-        cache_key,
-        ttl,
-        json.dumps(user_data)
-      )
-      logger.debug(f"[cache_user_profile] Профиль user: {user_id} закэширован на {ttl} секунд")
-    
-    except Exception as e:
-      logger.error(f"[cache_user_profile] Ошибка кэширования профиля: {e}")
-
-
-  async def get_cached_user_profile(self, user_id: int) -> dict | None:
-    """Получить профиль пользователя из кэша"""
-
-    cache_key = f"user:profile:{user_id}"
-    try:
-      cached = await self.redis.get(cache_key)
-      if cached:
-        return json.loads(cached)
-    
-    except Exception as e:
-      logger.error(f"[get_cached_user_profile] Ошибка получения кэша профиля: {e}")
-    return None 
+    return False 
   
 
-  # ============ СОЕДИНЕНИЯ WEB SOCKET ============
-  async def add_websocket_connection(self, chat_id: int, websocket_id: str, user_id: int):
-    """
-    Регистрирует WebSocket соединение
-    Используется в ConnectionManager
-    """
+  # ============ СЛУШАТЕЛЬ PUB/SUB ============
+
+  async def start_listening(self):
+    """Запуск слушателя Redis Pub/Sub"""
+
+    if self._listening:
+      return 
 
     try:
-      # 1. Chat -> WebSocket
-      await self.redis.sadd(f"chat:{chat_id}:connections", websocket_id)
+      self._listening = True 
+      self._pubsub = self.redis.pubsub()
 
-      # 2. WebSocket -> User
-      await self.redis.setex(f"ws:{websocket_id}", 300, user_id)
+      # Подписываемся на все каналы сообщений
+      await self._pubsub.psubscribe("chat:messages:*")
 
-      logger.info(f"[add_connection] Добавлено WebSocket соединение: {websocket_id[:8]} для пользователя user: {user_id}")
+      # Запускаем слушателя в фоне
+      self._listening_task = asyncio.create_task(self._listen_loop())
+
+      logger.info(f"Redis Pub/Sub слушатель запущен")
 
     except Exception as e:
-      logger.error(f"[add_connection] Ошибка добавления WebSocket соединения: {e}")
+      logger.error(f"Ошибка запуска слушателя: {e}")
+      self._listening = False 
+      self.metrics["errors"] += 1
 
   
-  async def remove_websocket_connection(self, chat_id: int, websocket_id: str):
-    """
-    Удаляет WebSocket соединение
-    """
+  async def _listen_loop(self):
+    """Основной цикл слушателя"""
+
+    while self._listening:
+      try:
+        async for message in self._pubsub.listen():
+          if message["type"] == "pmessage":
+            await self._handle_pubsub_message(message)
+
+      except ConnectionError:
+        logger.warning("Потеряно соединение с Redis, переподключение...")
+        self.metrics["reconnects"] += 1
+        await asyncio.sleep(2)
+        await self._reconnect()
+      except Exception as e:
+        logger.error(f"Ошибка в цикле слушателя: {e}")
+        self.metrics["errors"] += 1
+        await asyncio.sleep(1)
+
+
+  async def _handle_pubsub_message(self, message: dict):
+    """Обработка сообщения из Pub/Sub"""
 
     try:
-      # 1. Удаляем WebSocket -> User
-      await self.redis.delete(f"ws:{websocket_id}")
+      channel = message["channel"]    # Например "chat:messages:123"
 
-      # 2. Удаляем из чата
-      await self.redis.srem(f"chat:{chat_id}:connections", websocket_id)
+      if not channel.startswith("chat:messages:"):
+        return # Не наш канал
+      
+      # Извлекаем chat_id из канала
+      chat_id = int(channel.split(":")[2])
+      data = json.loads(message["data"])
 
-      logger.info(f"[remove_websocket_connections] WebSocket {websocket_id[:8]} удален")
+      # Получаем подписчиков чата
+      subscribers = await self.get_chat_subscribers(chat_id)
+
+      if not subscribers:
+        logger.debug(f"Нет подписчиков для чата {chat_id}")
+        return 
+      
+      # Отправляем сообщение через WebSocketManager
+      if self._websocket_manager:
+        for user_id_str in subscribers:
+          user_id = int(user_id_str)
+
+          # Проверяем онлайн-статус (оптимизация)
+          if await self.is_user_online(user_id):
+            await self._websocket_manager.send_to_user(user_id, {
+              "type": "chat_message",
+              "data": data,
+            })
+
+      self.metrics["messages_received"] += 1
 
     except Exception as e:
-      logger.error(f"[remove_websocket_connections] Ошибка: {e}")
+      logger.error(f"Ошибка обработки Pub/Sub сообщения: {e}")
+      self.metrics["errors"] += 1
 
 
-   # ============ ХРАНЕНИЕ АКТИВНЫХ СОЕДИНЕНИЙ ПОЛЬЗОВАТЕЛЯ ============
-  async def register_user_connection(self, user_id: int, ws_id: str, server_id: int):
-    """
-    Регистрация соединения пользователя
-    """
+  async def _reconnect(self):
+    """Переподключение к Redis"""
 
-    # Ключ: user_connections:{user_id}
-    key = f"user_connections:{user_id}"
-    await self.redis.hset(key, ws_id, server_id)
-    await self.redis.expire(key, 3600)  # TTL 1 чаc
+    try:
+      if self._pubsub:
+        await self._pubsub.close()
 
-  
-  async def unregister_user_connection(self, user_id: int, ws_id: str):
-    """
-    Удаление соединения пользователя
-    """
+      await self.redis.close()
 
-    key = f"user_connections:{user_id}"
-    await self.redis.hdel(key, ws_id)
+      # Создаем новое соединение
+      self.redis = Redis(connection_pool=self.pool)
 
-
-  async def get_user_connections(self, user_id: int) -> Dict[str, str]:
-    """
-    Получение всех соединений пользователя
-    """
-
-    key = f"user_connections:{user_id}"
-    await self.redis.hgetall(key)
+      # Перезапускаем слушателя
+      if self._listening:
+        await self.start_listening()
+    
+    except Exception as e:
+      logger.error(f"Ошибка переподключения: {e}")
 
 
-   # ============ Pub/Sub ============
-  async def subscribe_to_chat_messages(self, user_id: int, chat_id: int):
-    """
-    Подписка пользователя на сообщения чата
-    """
+  # ============ СВЯЗЬ С WEBSOCKET MANAGER ============
 
-    key = f"user_subscriptions:messages:{user_id}"
-    await self.redis.sadd(key, str(chat_id))
+  def set_websocket_manager(self, manager):
+    """Установить ссылку на WebSocketManager"""
 
-
-  async def publish_chat_message(self, chat_id: int, message_data: dict):
-    """
-    Публикация нового сообщения
-    """
-
-    channel = f"chat:{chat_id}:messages"
-    await self.redis.publish(channel, json.dumps(message_data))
+    self._websocket_manager = manager 
 
   
-  async def publish_user_updates(self, user_id: int, update_data: dict):
-    """
-    Публикация обновления пользователя
-    """
+  # ============ МЕТРИКИ И СТАТУС ============
 
-    channel = f"user:{user_id}:updates"
-    await self.redis.publish(channel, json.dumps(update_data))
+  async def get_stats(self) -> dict:
+    """Получить статистику Redis"""
+
+    try:
+      info = await self.redis.info()
+      return {
+        **self.metrics,
+        "redis_connected": True,
+        "redis_used_memory": info.get("used_memory_human", "N/A"),
+        "redis_connecntions": info.get("connected_clients", 0),
+        "timestamp": datetime.now().isoformat(),
+      }
+    
+    except RedisError:
+      return {
+        **self.metrics,
+        "redis_connected": False,
+        "timestamp": datetime.now().isoformat(),
+      }
+    
+
+  # ============ ЗАКРЫТИЕ ============
+
+  async def close(self):
+    """Закрытие соединений"""
+
+    try:
+      self._listening = False 
+
+      if self._listener_task:
+        self._listener_task.cancel()
+        try:
+          await self._listener_task
+        except asyncio.CancelledError:
+          pass
+      
+      if self._pubsub:
+        await self._pubsub.close()
+
+      await self.redis.close()
+      await self.pool.disconnect()
+
+      logger.info(f"RedisManager закрыт")
+
+    except Exception as e:
+      logger.error(f"Ошибка закрытия RedisManager: {e}")
 
 
+# Глобальный инстанс
+redis_manager = RedisManager() 
 
-redis_manager = RedisManager()
+
