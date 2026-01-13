@@ -314,12 +314,13 @@ class RedisManager:
         for user_id_str in subscribers:
           user_id = int(user_id_str)
 
-          # Проверяем онлайн-статус (оптимизация)
-          if await self.is_user_online(user_id):
-            await self._websocket_manager.send_to_user(user_id, {
-              "type": "chat_message",
-              "data": data,
-            })
+          # # Проверяем онлайн-статус (оптимизация)
+          # if await self.is_user_online(user_id):
+          #   await self._websocket_manager.send_to_user(user_id, {
+          #     "type": "chat_message",
+          #     "data": data,
+          #   })
+          await self._websocket_manager.handle_o
 
       self.metrics["messages_received"] += 1
 
@@ -351,7 +352,7 @@ class RedisManager:
   # ============ СВЯЗЬ С WEBSOCKET MANAGER ============
 
   def set_websocket_manager(self, manager):
-    """Установить ссылку на WebSocketManager"""
+    """Ссылка на WebSocketManager"""
 
     self._websocket_manager = manager 
 

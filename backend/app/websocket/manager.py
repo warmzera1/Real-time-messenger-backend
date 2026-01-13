@@ -9,6 +9,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
+from app.services.delivery_service import DeliveryService
 from app.database import AsyncSessionLocal
 from app.database import get_db_session
 from app.redis.manager import redis_manager 
@@ -167,6 +168,8 @@ class WebSocketManager:
           await self._handle_chat_message(websocket, data)
         elif message_type == "pong":
           continue    # Игнориурем PONG, heartbeat обрабатывает
+        # elif message_type == "ack":
+        #   await self._handle_ask_message(websocket, data)
         else:
           logger.warning(f"Неизвестный тип сообщения: {message_type}")
     
@@ -176,6 +179,25 @@ class WebSocketManager:
     except Exception as e:
       logger.error(f"Ошибка обработки сообщения: {e}")
       await self.disconnect(websocket)
+
+
+  async def handle_incoming_pubsub_message(self, user_id: int, data: dict):
+    """
+    Отправка сообщения конкретному пользователю через WebSocket
+    """
+
+    delivered = await self.send_to_user(user_id, {
+      "type": "chat_message",
+      "data": data,
+    })
+
+    # Если доставка прошла успешно (хоть одному устройству)
+    if delivered:
+      # Отмечаем сообщение как "доставленное" в базе
+      await DeliveryService.mark_delivered(
+        message_id=data["id"],
+        recipient_id=user_id,
+      )
 
 
   async def _handle_chat_message(self, websocket: WebSocket, data: dict):
@@ -232,23 +254,23 @@ class WebSocketManager:
       self.metrics["errors"] += 1
 
 
-  async def send_to_user(self, user_id: int, data: dict):
+  async def send_to_user(self, user_id: int, data: dict) -> bool:
     """
     Отправка сообщения всем устройствам пользователя
-    Возвращает количество успешно отправленных устройств
+    Возвращает факт доставки сообщения пользователю
     """
 
     if user_id not in self.active_connections:
-      return 0
+      return False 
     
-    sent_count = 0
+    delivered = False
     dead_connections = []
 
     for ws in list(self.active_connections[user_id]):
       try:
         await self._send_to_websocket(ws, data)
-        sent_count += 1
-        self.metrics["messages_sent"] += 1
+        delivered = True
+        logger.info("Сообщение доставлено: {delivered}")
       except Exception:
         dead_connections.append(ws)
 
@@ -256,7 +278,7 @@ class WebSocketManager:
     for ws in dead_connections:
       await self.disconnect(ws)
 
-    return sent_count
+    return delivered
   
 
   async def _subscribe_to_user_chats(self, user_id: int):

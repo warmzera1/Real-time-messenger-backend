@@ -1,7 +1,7 @@
 from datetime import datetime 
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.models.message import Message
 import logging
@@ -33,7 +33,6 @@ class MessageService:
         chat_id=chat_id,
         sender_id=sender_id,
         content=content,
-        delivered_at=datetime.utcnow()    # Время доставки - текущее UTC
       )
 
       db.add(message)             # Добавляем в сессию
@@ -94,4 +93,39 @@ class MessageService:
     except Exception as e:
       logger.error(f"[Get Message By ID] Ошибка получения сообщения: {e}")
       return None 
+    
+  
+  @staticmethod 
+  async def mark_as_delivered(message_id: int, db: AsyncSession) -> bool:
+    """
+    Атомарно отмечает сообщение как доставленное
+    Обновляет delivered_at ТОЛЬКО если поле еще null
+    True - если обновление произошло, False - если уже было доставлено или
+    """
+
+    try:
+      stmt = (
+        update(Message)
+        .where(
+          Message.id == message_id,
+          Message.delivered_at.is_(None)    # Только если еще не доставлено
+      ).values(
+        delivered_at=datetime.utcnow())
+      )
+
+      result = await db.execute(stmt)
+      await db.commit()
+
+      rows_updated = result.rowcount()
+
+      if rows_updated > 0:
+        logger.info("Сообщение {message_id} отмечено как доставлено")
+        return True 
+      
+    except Exception as e:
+      db.rollback()
+      logger.error(f"Ошибка обновления статуса доставки: {e}")
+      return False 
+  
+
  
