@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Вход в мессенджер</title>
   <link rel="stylesheet" href="css/style.css">
-  <!-- Font Awesome для иконок -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
@@ -19,27 +18,21 @@
       <h2>Вход в мессенджер</h2>
     </div>
 
+    <!-- Форма логина -->
     <form id="loginForm">
-      <input type="text" id="username" placeholder="Логин или email" required autocomplete="username">
+      <input type="text" id="username" placeholder="Логин или email">
 
       <div class="password-container">
-        <input type="password" id="password" placeholder="Пароль" required autocomplete="current-password">
+        <input type="password" id="password" placeholder="Пароль">
         <button type="button" class="toggle-password" id="togglePassword">
           <i class="fas fa-eye"></i>
         </button>
       </div>
 
-      <button type="submit" id="submitButton">
-        <span id="buttonText">Войти</span>
-        <i class="fas fa-spinner fa-spin" id="loadingSpinner" style="display: none;"></i>
-      </button>
+      <button type="submit">Войти</button>
     </form>
 
-    <div id="error" style="color: red; display: none;"></div>
-
-    <div class="auth-footer">
-      <p>Ещё нет аккаунта? <a href="#" id="registerLink">Зарегистрироваться</a></p>
-    </div>
+    <div id="error"></div> <!-- Для ошибок -->
   </div>
 
   <script type="module" src="js/auth.js"></script>

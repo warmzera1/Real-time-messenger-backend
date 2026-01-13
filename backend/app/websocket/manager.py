@@ -201,31 +201,31 @@ class WebSocketManager:
           await self._send_error(websocket, "Не является участником чата")
           return
       
-      # Сохраняем в БД
-      message_service = MessageService()
-      message = await message_service.create_message(
-        chat_id=chat_id,
-        sender_id=user_id,
-        content=content.strip(),
-        db=db,
-      )
+        # Сохраняем в БД
+        message_service = MessageService()
+        message = await message_service.create_message(
+          chat_id=chat_id,
+          sender_id=user_id,
+          content=content.strip(),
+          db=db,
+        )
 
-      if not message:
-        await self._send_error(websocket, "Ошибка при сохранении сообщения")
-        return 
-      
-      # Публикуем в Redis
-      message_data = {
-        "id": message.id,
-        "chat_id": chat_id,
-        "sender_id": user_id,
-        "content": content,
-        "created_at": message.created_at.isoformat() if message.created_at else None,
-        "delivered_at": message.delivered_at.isoformat() if message.delivered_at else None,
-      }
+        if not message:
+          await self._send_error(websocket, "Ошибка при сохранении сообщения")
+          return 
+        
+        # Публикуем в Redis
+        message_data = {
+          "id": message.id,
+          "chat_id": chat_id,
+          "sender_id": user_id,
+          "content": content,
+          "created_at": message.created_at.isoformat() if message.created_at else None,
+          "delivered_at": message.delivered_at.isoformat() if message.delivered_at else None,
+        }
 
-      await redis_manager.publish_chat_message(chat_id, message_data)
-      logger.debug(f"Сообщение {message.id} опубликовано в чате {chat_id}")
+        await redis_manager.publish_chat_message(chat_id, message_data)
+        logger.debug(f"Сообщение {message.id} опубликовано в чате {chat_id}")
 
     except Exception as e:
       logger.error(f"Ошибка обработки chat_message: {e}")

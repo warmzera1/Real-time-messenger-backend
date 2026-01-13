@@ -30,5 +30,5 @@ async def get_db() -> AsyncSession:
 # Для WebSocket / background / services
 @asynccontextmanager
 async def get_db_session():
-  async with AsyncSession() as session:
+  async with AsyncSessionLocal() as session:
     yield session 

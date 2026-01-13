@@ -9,15 +9,10 @@
 </head>
 
 <body>
-  <!-- Боковая панель -->
+  <!-- Боковая панель с чатами -->
   <div class="sidebar">
-    <div class="sidebar-header">
-      <input type="text" class="search-input" placeholder="Поиск чатов..." id="chatSearch">
-    </div>
-    <div class="chat-list" id="chatList">
-      <!-- Список чатов -->
-      <div class="chat-item">Загрузка чатов...</div>
-    </div>
+    <input type="text" class="search-input" placeholder="Поиск чатов..." id="chatSearch">
+    <div class="chat-list" id="chatList"></div>
   </div>
 
   <!-- Основная область чата -->
@@ -32,12 +27,6 @@
       </p>
     </div>
 
-    <div class="typing-indicator" id="typingIndicator" style="" display; none">
-      <span class="typing-dots">
-        <span>.</span><span>.</span><span>.</span>
-      </span>
-    </div>
-
     <div class="input-area" id="inputArea" style="display: none;">
       <input type="text" class="message-input" placeholder="Введите сообщение..." id="messageInput">
       <button class="send-button" id="sendButton">Отправить</button>
@@ -50,20 +39,16 @@
   <!-- Модальное окно поиска пользователей -->
   <div class="modal-overlay" id="userSearchModal">
     <div class="modal">
-      <div class="modal-header">
-        <h3>Новый чат</h3>
-        <button class="close-modal" id="closeModal">&times;</button>
-      </div>
       <input type="text" class="user-search-input" placeholder="Поиск пользователей..." id="userSearchInput">
       <div class="user-list" id="userList">
-        <!-- Список пользователей -->
       </div>
     </div>
   </div>
 
   <!-- Подключаем скрипты -->
-  <script type="module" src="js/api.js"></script>
-  <script type="module" src="js/chat.js"></script>
+  <script type="module" src="js/api.js"></script> <!-- 1. Базовый API -->
+  <script type="module" src="js/ws.js"></script> <!-- 2. WebSocket -->
+  <script type="module" src="js/chat.js"></script> <!-- 3. Основная логика -->
 </body>
 
 </html>

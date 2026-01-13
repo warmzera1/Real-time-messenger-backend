@@ -1,61 +1,89 @@
-// Глобальная переменная для хранения объекта WebSocket
-let socket = null;
+let socket = null; // Текущий WebSocket (один на все приложение)
+let messageHandlers = []; // Массив функций-обработчиков входящих сообщений
 
-// Массив для хранения дополнительных обработчиков сообщений
-let messageHandlers = [];
+// Подключение к WebSocket
+export function connectWebSocket(onMessage, onOpen, onClose, onError) {
+  const token = localStorage.getItem("access_token");
 
-// Функция подключения к WebSocket серверу
-// OnMessage - основной обработчик сообщений, onOpen - при открытии, onError - при ошибке
-export function connectWebSocket(onMessage, onOpen, onError) {
-  // Создаем новое WebSocket-соединение с сервером
-  // Куки отправляются автоматически (если тот же домен)
-  socket = new WebSocket(`ws://localhost:8000/ws`);
+  if (!token) {
+    console.error("Нет JWT токена");
+    if (onError) onError("Нет токена");
+    return null;
+  }
 
-  // Обработчик события открытия соединения
+  // Подключаемся с токеном в query-параметре
+  socket = new WebSocket(`ws://localhost:8000/ws?token=${token}`);
+
   socket.onopen = (event) => {
-    console.log("WebSocket соединение установлено"); // Лог в консоль
-    if (onOpen) onOpen(event); // Вызываем пользовательский callback
+    console.log("WebSocket подключен");
+    if (onOpen) onOpen(event);
   };
 
-  // Обработчик входящих сообщений
   socket.onmessage = (event) => {
     try {
-      // Парсим строку в JSON-объект
       const message = JSON.parse(event.data);
-      // Вызываем все зарегистрированные обработчики
+
+      // Специальные системные типы
+      if (message.type === "connection_established") {
+        console.log("Connection established");
+        return;
+      }
+      if (message.type === "ping") {
+        socket.send(JSON.stringify({ type: "pong" }));
+        return;
+      }
+
+      // Обычные сообщения - всем обработчикам
       messageHandlers.forEach((handler) => handler(message));
-      // Вызываем основной обработчик, переданный в connectWebSocket
       if (onMessage) onMessage(message);
     } catch (error) {
-      // Логируем ошибку парсинга
-      console.log("Ошибка парсинга сообщения:", error);
+      console.error("Ошибка парсинга сообщения:", error);
     }
   };
 
-  // Обработчик ошибок соединения
-  socket.onerror = (error) => {
-    console.log("WebSocket error:", error);
-    if (onError) onError(error); // Передаем ошибку в пользовательский callback
+  socket.onclose = (event) => {
+    console.log("WebSocket закрыт");
+    if (onClose) onClose(event);
   };
 
-  // Возвращем объекта сокета
+  socket.onerror = (error) => {
+    console.log("WebSocket ошибка:", error);
+    if (onError) onError(error);
+  };
+
   return socket;
 }
 
-// Функция отправки сообщений через WebSocket
-export function sendMessage(message) {
-  // Проверяем, что сокен существует и соединение открыто
+// Отправка сообщения в чат
+export function sendChatMessage(chatId, content) {
   if (socket && socket.readyState === WebSocket.OPEN) {
-    // Сериализуем объект в JSON и отправляем
+    const message = {
+      type: "chat_message",
+      chat_id: chatId,
+      content: content,
+    };
     socket.send(JSON.stringify(message));
-  } else {
-    // Если соединение не готово - выводим ошибку
-    console.error("WebSocket соединение закрыто");
+    return true;
   }
+  console.error("WebSocket не подключен");
+  return false;
 }
 
-// Дополнительный обработчик входящих сообщений
+// Обработчик входящий сообщений
 export function addMessageHandler(handler) {
-  // Добавляем функцию в массив обработчика
   messageHandlers.push(handler);
+}
+
+// Отключиться и все очистить
+export function disconnectWebSocket() {
+  if (socket) {
+    socket.close();
+    socket = null;
+  }
+  messageHandlers = [];
+}
+
+// Проверка состояния подключения
+export function isConnected() {
+  return socket && socket.readyState === WebSocket.OPEN;
 }

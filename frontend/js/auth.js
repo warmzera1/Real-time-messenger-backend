@@ -1,152 +1,111 @@
-// Импортируем функцию apiRequest из api.js
-import { apiRequest, tokenManager } from "./api.js";
+// Импорт функций из api.js
+import { apiRequest, setTokens, hasToken } from "./api.js";
 
-// Ждем полную загрузку DOM
+// Если токен уже есть - сразу на главную страницу
+if (hasToken()) {
+  window.location.href = "index.html";
+}
+
+// Ждем загрузки DOM
 document.addEventListener("DOMContentLoaded", function () {
-  // Находим элементы
   const loginForm = document.getElementById("loginForm");
   const errorElement = document.getElementById("error");
+  const togglePassword = document.getElementById("togglePassword");
+  const passwordInput = document.getElementById("password");
 
-  // Если токен уже есть, редиректим на главную
-  if (
-    tokenManager.hasToken() &&
-    !window.location.pathname.includes("auth.html")
-  ) {
-    window.location.href = "/index.html";
+  // Показать/скрыть пароль
+  if (togglePassword && passwordInput) {
+    togglePassword.addEventListener("click", function () {
+      const type = passwordInput.type === "password" ? "text" : "password";
+      passwordInput.type = type;
+
+      // Меняем иконку глаза
+      const icon = this.querySelector("i");
+      if (icon) {
+        icon.classList.toggle("fa-eye");
+        icon.classList.toggle("fa-eye-slash");
+      }
+    });
   }
 
-  // Обработчик отправки формы
+  // Обработка отправки формы логина
   loginForm.addEventListener("submit", async function (event) {
-    event.preventDefault();
-    console.log("Форма отправлена");
+    event.preventDefault(); // Отменяем обычную отправку формы
 
-    // Скрываем предыдущую ошибку
     errorElement.style.display = "none";
     errorElement.textContent = "";
 
-    // Получаем значения полей
     const username = document.getElementById("username").value.trim();
     const password = document.getElementById("password").value.trim();
-    console.log("Введено имя пользователя:", username);
 
-    // Валидация
-    if (!username || !password) {
+    if (!username && !password) {
       showError("Заполните все поля");
       return;
     }
 
-    // Показываем индикатор загрузки
-    const submitButton = loginForm.querySelector('button[type="submit"]');
-    const originalButtonText = submitButton.textContent;
-    submitButton.textContent = "Вход...";
+    // Блокировка кнопки + спиннер
+    const submitButton = loginForm.querySelector("button[type='submit']");
+    const originalText = submitButton.textContent;
     submitButton.disabled = true;
+    submitButton.innerHTML = "<i class='fas fa-spinner fa-spin'></i> Вход...";
 
     try {
-      console.log("Отправляю запрос на /auth/login...");
-
-      // Отправляем запрос на авторизацию
+      // Запрос на сервер
       const response = await apiRequest("/auth/login", "POST", {
-        username: username,
-        password: password,
+        username,
+        password,
       });
 
-      console.log("Успешный ответ от сервера:", response);
-
-      // ВАЖНО: Сохраняем токены
+      // Успех - сохраняем токен и редирект
       if (response.access_token) {
-        console.log("Сохраняю токены...");
-        tokenManager.setTokens(response.access_token, response.refresh_token);
-        console.log("Токены сохранены");
+        setTokens(response.access_token);
+        window.location.href = "index.html";
       } else {
-        console.error("Сервер не вернул access_token!");
-        showError("Ошибка сервера: не получен токен");
-        return;
+        showError("Ошибка сервера: токен не получен");
       }
-
-      // Ждем немного чтобы токены точно сохранились
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Проверяем сохранение
-      if (!tokenManager.hasToken()) {
-        showError("Не удалось сохранить токен");
-        return;
-      }
-
-      // Редирект на главную страницу
-      console.log("Выполняю редирект на /index.html");
-      window.location.href = "/index.html";
     } catch (error) {
-      console.error("Ошибка входа:", error);
-      console.error("Детали:", error.message, error.response);
-
-      // Определяем тип ошибки
-      let errorMessage = "Ошибка сервера. Попробуйте позже";
-
-      if (
-        error.status === 401 ||
-        error.message.includes("401") ||
-        (error.response && error.response.detail === "Неверные учетные данные")
-      ) {
-        errorMessage = "Неверный логин или пароль";
-      } else if (error.status === 400 || error.message.includes("400")) {
-        errorMessage = "Неверный формат данных";
-      } else if (error.status === 429 || error.message.includes("429")) {
-        errorMessage = "Слишком много попыток. Подождите 5 минут";
-      } else if (
-        error.message.includes("Failed to fetch") ||
-        !navigator.onLine
-      ) {
-        errorMessage = "Нет подключения к серверу";
-      } else if (error.response && error.response.detail) {
-        errorMessage = error.response.detail;
+      // Обработка разных ошибок
+      if (error.status === 401) {
+        showError("Неверный логин или пароль");
+      } else if (error.status === 400) {
+        showError("Неверный формат данных");
+      } else if (error.message.includes("Failed to fetch")) {
+        showError("Нет подключения к серверу");
+      } else {
+        showError(error.message || "Ошибка сервера");
       }
-
-      showError(errorMessage);
     } finally {
-      // Восстанавливаем кнопку
-      submitButton.textContent = originalButtonText;
+      // Всегда возвращаем кнопку в нормальное состояние
       submitButton.disabled = false;
+      submitButton.textContent = originalText;
     }
   });
 
-  // Обработчик для показа/скрытия пароля
-  const togglePassword = document.getElementById("togglePassword");
-  const passwordInput = document.getElementById("password");
-
-  if (togglePassword && passwordInput) {
-    togglePassword.addEventListener("click", function () {
-      const type =
-        passwordInput.getAttribute("type") === "password" ? "text" : "password";
-      passwordInput.setAttribute("type", type);
-      // Меняем иконку если используем FontAwesome
-      if (this.classList) {
-        this.classList.toggle("fa-eye");
-        this.classList.toggle("fa-eye-slash");
-      }
+  // Заглушка для ссылки на регистрацию
+  document
+    .getElementById("registerLink")
+    ?.addEventListener("click", function (e) {
+      e.preventDefault();
+      alert("Регистрация временно не реализована");
     });
-  }
 });
 
-// Функция для показа ошибки пользователю
+// Функция показа ошибки + авто-скрытие
 function showError(message) {
   const errorElement = document.getElementById("error");
   const passwordInput = document.getElementById("password");
 
-  // Устанавливаем текст ошибки
   errorElement.textContent = message;
   errorElement.style.display = "block";
 
-  // Очищаем поле пароля для безопасности
+  // Очищаем поле пароля и фокус на него
   if (passwordInput) {
     passwordInput.value = "";
     passwordInput.focus();
   }
 
-  // Автоматически скрываем через 5 секунд
+  // Автоскрытие ошибки через 5 секунд
   setTimeout(() => {
     errorElement.style.display = "none";
   }, 5000);
 }
-
-// Дополнительно: можно добавить проверку нажатия Enter
-// (но стандартное поведение формы уже работает)
