@@ -116,14 +116,14 @@ class MessageService:
       result = await db.execute(stmt)
       await db.commit()
 
-      rows_updated = result.rowcount()
+      rows_updated = result.rowcount
 
       if rows_updated > 0:
         logger.info("Сообщение {message_id} отмечено как доставлено")
         return True 
       
     except Exception as e:
-      db.rollback()
+      await db.rollback()
       logger.error(f"Ошибка обновления статуса доставки: {e}")
       return False 
   

@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services.delivery_service import DeliveryService
+from app.services.read_service import ReadService
 from app.database import AsyncSessionLocal
 from app.database import get_db_session
 from app.redis.manager import redis_manager 
@@ -168,8 +169,8 @@ class WebSocketManager:
           await self._handle_chat_message(websocket, data)
         elif message_type == "pong":
           continue    # Игнориурем PONG, heartbeat обрабатывает
-        # elif message_type == "ack":
-        #   await self._handle_ask_message(websocket, data)
+        elif message_type == "ack":
+          await self._handle_ask_message(websocket, data)
         else:
           logger.warning(f"Неизвестный тип сообщения: {message_type}")
     
@@ -252,6 +253,39 @@ class WebSocketManager:
     except Exception as e:
       logger.error(f"Ошибка обработки chat_message: {e}")
       self.metrics["errors"] += 1
+
+
+  async def _handle_ask_message(self, websocket: WebSocket, data: dict):
+    """
+    Обрабатывает сообщение от клиента о том, 
+    что пользователь прочитал конкретное сообщение
+    """
+
+    # 1. Получаем пользователя текущего WebSocket-соединения
+    user_id = self.websocket_to_user.get(websocket)
+    if not user_id:
+      return 
+    
+    # 2. Берем message_id из прешедших данных
+    message_id = data.get("message_id")
+    if not message_id:
+      await self._send_error(websocket, "message_id обязателен")
+      return 
+    
+    # 3. Помечаем сообщение как прочитанное именно этим пользователем
+    async with get_db_session() as db:
+      success = await ReadService.mark_read(
+        message_id=message_id,
+        user_id=user_id,
+      )
+
+    # Если отметка прошла успешно - отправляем всем участникам чата (или конкретному пользователю)
+    if success:
+      await self._send_to_websocket(websocket, {
+        "type": "message_read",
+        "message_id": message_id,
+        "user_id": user_id,
+      })
 
 
   async def send_to_user(self, user_id: int, data: dict) -> bool:

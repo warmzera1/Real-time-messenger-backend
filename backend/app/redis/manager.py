@@ -301,6 +301,7 @@ class RedisManager:
       # Извлекаем chat_id из канала
       chat_id = int(channel.split(":")[2])
       data = json.loads(message["data"])
+      message_id = data["id"]
 
       # Получаем подписчиков чата
       subscribers = await self.get_chat_subscribers(chat_id)
@@ -310,17 +311,29 @@ class RedisManager:
         return 
       
       # Отправляем сообщение через WebSocketManager
+      total_sent = 0
       if self._websocket_manager:
         for user_id_str in subscribers:
           user_id = int(user_id_str)
 
-          # # Проверяем онлайн-статус (оптимизация)
-          # if await self.is_user_online(user_id):
-          #   await self._websocket_manager.send_to_user(user_id, {
-          #     "type": "chat_message",
-          #     "data": data,
-          #   })
-          await self._websocket_manager.handle_o
+          # Проверяем онлайн статус
+          if await self.is_user_online(user_id):
+            sent_count = await self._websocket_manager.send_to_user(user_id, {
+              "type": "chat_message",
+              "data": data,
+            })
+            total_sent += sent_count 
+          
+      # Если хотя бы один пользователь получил сообщение, обновляем delivered_at
+      if total_sent > 0:
+        from app.services.message_service import MessageService
+        from app.database import get_db_session
+
+        async with get_db_session() as db:
+          await MessageService().mark_as_delivered(
+            message_id=message_id,
+            db=db,
+          )
 
       self.metrics["messages_received"] += 1
 
