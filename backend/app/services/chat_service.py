@@ -1,10 +1,12 @@
-from sqlalchemy import select, exists, func
+from sqlalchemy import select, exists, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession 
 from typing import List, Optional
 import logging
 
 from app.models.user import User
 from app.models.chat import ChatRoom
+from app.models.message import Message
+from app.models.chat_reads import ChatRead
 from app.models.participant import participants 
 
 logger = logging.getLogger(__name__)
@@ -178,6 +180,56 @@ class ChatService:
 
     result = await db.execute(stmt)
     return result.first() is not None
+  
+
+  @staticmethod 
+  async def get_user_chats_with_unread_count(
+    user_id: int,
+    db: AsyncSession,
+  ) -> List[dict]:
+    """
+    Возвращает чаты пользователя и количество непрочитанных сообщений
+    """
+
+    stmt = (
+      select(
+        ChatRoom.id.label("chat_id"),           # chat_room.id as chat_id
+        ChatRoom.name.label("chat_name"),               # chat_room.name as chat_name
+        func.count(Message.id).label("unread_count"),   # count messages.id as unread_count
+    )
+    .join(ChatRoom.participants)                        # связь user <-> chats
+    .outerjoin(                                         # left join
+      ChatRead,
+      and_(                                             # условие соединения
+        ChatRead.chat_id == ChatRoom.id,                # по id чата
+        ChatRead.user_id == user_id,                    # по текущему пользователю
+      )
+    )
+    .outerjoin(
+      Message,
+      and_(                                            # условие соединения
+        Message.chat_id == ChatRoom.id,                # в этом чате
+        Message.sender_id != user_id,                  # НЕ от текущего пользователя
+        or_(
+          ChatRead.last_read_message_id.is_(None),    
+          Message.id > ChatRead.last_read_message_id,  # новее последнего прочитаного (или прочитанных вообще)
+        ),
+      )
+    )
+    .where(ChatRoom.participants.any(id=user_id))      
+    .group_by(ChatRoom.id)                             # группируем по чату, чтобы подсчет сообщения по каждому чату 
+    )
+
+    result = await db.execute(stmt)
+
+    return [
+      {
+        "chat_id": row.chat_id,
+        "chat_name": row.chat_name,
+        "unread_count": row.unread_count,
+      }
+      for row in result.all()
+    ]
   
 
 
