@@ -11,6 +11,7 @@ from app.services.chat_service import ChatService
 from app.services.message_service import MessageService
 from app.services.delivery_service import DeliveryService
 from app.services.read_service import ReadService
+from app.services.chat_read_service import ChatReadService
 from app.database import AsyncSessionLocal
 from app.database import get_db_session
 from app.redis.manager import redis_manager 
@@ -170,7 +171,7 @@ class WebSocketManager:
         elif message_type == "pong":
           continue    # Игнориурем PONG, heartbeat обрабатывает
         elif message_type == "ack":
-          await self._handle_ask_message(websocket, data)
+          await self._handle_chat_read_ask(websocket, data)
         else:
           logger.warning(f"Неизвестный тип сообщения: {message_type}")
     
@@ -255,37 +256,31 @@ class WebSocketManager:
       self.metrics["errors"] += 1
 
 
-  async def _handle_ask_message(self, websocket: WebSocket, data: dict):
+  async def _handle_chat_read_ask(self, websocket: WebSocket, data: dict):
     """
-    Обрабатывает сообщение от клиента о том, 
-    что пользователь прочитал конкретное сообщение
+    Обрабатывает клиентские события 'я прочитал чат до сообщенич Х'
     """
 
-    # 1. Получаем пользователя текущего WebSocket-соединения
     user_id = self.websocket_to_user.get(websocket)
     if not user_id:
+      logger.warning("ACK без user_id")
       return 
     
-    # 2. Берем message_id из прешедших данных
-    message_id = data.get("message_id")
-    if not message_id:
-      await self._send_error(websocket, "message_id обязателен")
+    chat_id = data.get("chat_id")
+    last_read_message_id = data.get("last_read_message_id")
+
+    if not chat_id or not last_read_message_id:
+      logger.warning("Невалидный ACK payload", data)
       return 
     
-    # 3. Помечаем сообщение как прочитанное именно этим пользователем
     async with get_db_session() as db:
-      success = await ReadService.mark_read(
-        message_id=message_id,
+      await ChatReadService().mark_chat_read(
+        chat_id=chat_id,
         user_id=user_id,
+        last_read_message_id=last_read_message_id,
+        db=db,
       )
 
-    # Если отметка прошла успешно - отправляем всем участникам чата (или конкретному пользователю)
-    if success:
-      await self._send_to_websocket(websocket, {
-        "type": "message_read",
-        "message_id": message_id,
-        "user_id": user_id,
-      })
 
 
   async def send_to_user(self, user_id: int, data: dict) -> bool:
