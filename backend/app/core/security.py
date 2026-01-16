@@ -1,11 +1,15 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta 
-from jose import JWTError, jwt 
+from jose import JWTError, jwt
+from uuid import uuid4
 from app.core.config import settings
 
 
 # Контекст для работы с хешами 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+ALGORITHM = settings.ALGORITHM 
+SECRET_KEY = settings.SECRET_KEY
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -26,7 +30,7 @@ def get_password_hash(password: str) -> str:
   return pwd_context.hash(password)
  
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+def create_access_token(data: dict, expires_minutes: int = 15) -> str:
   """
   Создание access-токена
   """
@@ -34,53 +38,37 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
   # 1. Копируем данные, которые нужно закодировать в JWT-токен
   to_encode = data.copy()
 
-  # 2. Вычисляем время жизни acccess-токена
-  if expires_delta:
-    expire = datetime.utcnow() + expires_delta
-  else:
-    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+  # 2. Время жизни токена access-токена
+  expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
 
-  # 3. Добавляем время истечения payload
-  to_encode.update(
-    {
-      "exp": expire
-    }
-  )
+  # 3. Добавляем в payload
+  to_encode.update({
+    "exp": expire,
+    "jti": str(uuid4()),
+    "type": "access",
+  })
 
-  # 3. Возвращаем закодированный JSON Web Token
-  encoded_jwt = jwt.encode(
-          to_encode, 
-          settings.SECRET_KEY, 
-          algorithm=settings.ALGORITHM
-  )
-
-  return encoded_jwt
+  return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> str:
+def create_refresh_token(data: dict, expires_days: int = 7) -> tuple[str, str]:
   """Создание refresh-токена"""
 
   # 1. Копируем данные, которые нужно закодировать в JWT-токен
   to_encode = data.copy()
 
   # 2. Вычисляем время жизни refresh-токена
-  if expires_delta:
-    expire = datetime.utcnow() + expires_delta
-  else:
-    expire = datetime.utcnow() + timedelta(settings.REFRESH_TOKEN_EXPIRE_DAYS)
+  expire = datetime.utcnow() + timedelta(days=expires_days)
 
-  # 3. Добавляем exp в payload 
+  # 3. Добавляем в payload 
+  jti = str(uuid4())
   to_encode.update(
     {
-      "exp": expire
+      "exp": expire,
+      "jti": jti,
+      "type": "refresh",
     }
   )
 
-  # 4. Возвращаем закодированные JSON Web Token 
-  encoded_jwt = jwt.encode(
-      to_encode,
-      settings.SECRET_KEY,
-      algorithm=settings.ALGORITHM,
-  )
-
-  return encoded_jwt
+  token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+  return token, jti

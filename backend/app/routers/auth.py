@@ -5,8 +5,9 @@ from jose import jwt, JWTError
 
 from app.database import get_db
 from app.schemas.user import UserCreate, LoginForm
-from app.schemas.token import TokenResponse
+from app.schemas.token import TokenResponse, RefreshTokenRequest
 from app.models.user import User 
+from app.redis.manager import redis_manager
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 from app.core.config import settings
 
@@ -93,7 +94,9 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
     "sub": str(user.id)
   }
   access_token = create_access_token(payload)
-  refresh_token = create_refresh_token(payload)
+  refresh_token, jti = create_refresh_token(payload)
+
+  await redis_manager.add_refresh_token(jti, user.id, expires_seconds=7*24*3600)
 
   # 4. Возвращаем ответ
   return TokenResponse(
@@ -104,24 +107,30 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
+async def refresh_token(data: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
   """Обновление access-токена по refresh-токену"""
 
   try: 
     # 1. Декодируем refresh токен
     payload = jwt.decode(
-      refresh_token,
+      data.refresh_token,
       settings.SECRET_KEY,
       algorithms=[settings.ALGORITHM]
     )
-
-    # 2. Найти пользователя по sub, если нет - ошибка
-    user_id: str | None = payload.get("sub")
-    if user_id is None:
+    if payload.get("type") != "refresh":
       raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Невалидный refresh токен"
+        detail="Невалидный refresh токен",
       )
+    jti = payload.get("jti")
+    user_id: str = payload.get("sub")
+
+    if not jti or not user_id:
+      raise HTTPException(
+        status_code=status.HTTP_410_UNAUTHORIZED,
+        detail="Невалидный refresh токен",
+      )
+    
   # 3. Если токен поврежден - ошибка
   except JWTError:
     raise HTTPException(
@@ -129,21 +138,40 @@ async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
       detail="Невалидный refresh токен",
     )
   
+  if not await redis_manager.is_refresh_token_valid(jti):
+    raise HTTPException(
+      status_code=status.HTTP_401_UNAUTHORIZED,
+      detail="Refresh токен истек или отозван"
+    )
+  
+  await redis_manager.revoke_refresh_token(jti)
+  
   # 4. Поиск пользователя в БД
-  result = await(select(User).where(
-    User.id == int(user_id)
-  ))
+  result = await db.execute(
+    select(User).where(User.id == int(user_id))
+  )
   user = result.scalar_one_or_none()
+
+  if not user or not user.is_active:
+    raise HTTPException(
+      status_code=status.HTTP_401_UNAUTHORIZED,
+      detail="Пользователь не существует или неактивен"
+    )
   
   # 4. Новые токены (rotating refresh)
-  new_payload = {"sub": user_id}
-  access_token = create_access_token(new_payload)
-  refresh_token = create_refresh_token(new_payload)
+  new_access = create_access_token({"sub": user_id})
+  new_refresh, new_jti = create_refresh_token({"sub": user_id})
+
+  await redis_manager.add_refresh_token(
+      new_jti, 
+      int(user_id), 
+      expires_seconds=7*24*3600
+  )
 
   # 5. Возвращаем ответ
   return TokenResponse(
-    access_token=access_token,
-    refresh_token=refresh_token,
+    access_token=new_access,
+    refresh_token=new_refresh,
     token_type="bearer",
   )
   

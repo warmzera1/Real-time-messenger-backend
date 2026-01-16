@@ -160,6 +160,28 @@ class RedisManager:
       pass
 
 
+  # ============ REFRESH-ТОКЕН ============
+
+  async def add_refresh_token(self, jti: str, user_id: int, expires_seconds: int):
+    """Сохраняем refresh-токен в Redis"""
+
+    key = f"refresh:jti:{jti}"
+    await self.redis.set(key, user_id, ex=expires_seconds)
+
+
+  async def is_refresh_token_valid(self, jti: str) -> bool:
+    """Проверяем, что refresh-токен еще валиден"""
+
+    key = f"refresh:jti:{jti}"
+    return await self.redis.exists(key)
+  
+
+  async def revoke_refresh_token(self, jti: str):
+    """Удаляем refresh-токен из Redis"""
+    key = f"refresh:jti:{jti}"
+    await self.redis.delete(key)
+
+
   # ============ ПОДПИСКИ НА ЧАТЫ ============
 
   async def subscribe_to_chat(self, user_id: int, chat_id: int):
