@@ -3,6 +3,7 @@ import logging
 import asyncio
 from typing import Dict, Set 
 from datetime import datetime 
+from jose import jwt, JWTError
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -12,9 +13,9 @@ from app.services.message_service import MessageService
 from app.services.delivery_service import DeliveryService
 from app.services.read_service import ReadService
 from app.services.chat_read_service import ChatReadService
-from app.database import AsyncSessionLocal
 from app.database import get_db_session
-from app.redis.manager import redis_manager 
+from app.redis.manager import redis_manager
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,8 @@ class WebSocketManager:
 
       # # Принимаем соединение
       # await websocket.accept()
+
+      user_id = await self.authenticate_websocket(websocket)
 
       # Сохраняем в памяти
       if user_id not in self.active_connections:
@@ -299,7 +302,7 @@ class WebSocketManager:
       try:
         await self._send_to_websocket(ws, data)
         delivered = True
-        logger.info("Сообщение доставлено: {delivered}")
+        logger.info(f"Сообщение доставлено: {delivered}")
       except Exception:
         dead_connections.append(ws)
 
@@ -373,6 +376,37 @@ class WebSocketManager:
   #     logger.error(f"Неожиданная ошибка hearbeat: {e}")
   #   finally:
   #     await self.disconnect(websocket)
+
+
+  async def authenticate_websocket(self, websocket: WebSocket) -> int:
+    """Проверка JWT-токена из query параметра"""
+
+    token = websocket.query_params.get("token")
+    if not token:
+      await websocket.close(code=1008)
+      raise WebSocketDisconnect
+    
+    try:
+      payload = jwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=[settings.ALGORITHM]
+      )
+
+      if payload.get("type") != "access":
+        raise JWTError()
+      
+      user_id = payload.get("sub")
+      if not user_id:
+        raise JWTError()
+      
+      return int(user_id)
+    
+    except JWTError:
+      await websocket.close(code=1008)
+      raise WebSocketDisconnect
+
+
 
 
   async def _send_to_websocket(self, websocket: WebSocket, data: dict):
