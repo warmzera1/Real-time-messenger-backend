@@ -1,6 +1,6 @@
 import json 
 import logging 
-from typing import Optional 
+from typing import Optional, Callable, Awaitable
 
 import aio_pika
 from aio_pika import ExchangeType 
@@ -75,6 +75,48 @@ class RabbitMQManager:
     )
 
     logger.debug(f"Публикация события: {routing_key}")
+
+
+  async def consume(
+    self,
+    queue_name: str,
+    routing_key: str,
+    handler: Callable[[dict], Awaitable[None]],
+    exchange_name: str = "chat.events",
+  ):
+    """Обработка сообщения из очереди"""
+    
+    # 1. Проверка подключения
+    if not self.channel:
+      raise RuntimeError("RabbitMQ не подключен")
+    
+    # 2. Объявляет/получает exchange
+    exchange = await self.channel.declare_exchange(
+      exchange_name,
+      aio_pika.ExchangeType.TOPIC,
+      durable=True,
+    )
+
+    # 3. Создает/получает очередь
+    queue = await self.channel.declare_queue(
+      queue_name,
+      durable=True,
+    )
+
+    # 4. Привязывает очередь к exchange по ключу
+    await queue.bind(exchange, routing_key)
+
+    # 5. Внутренняя функция-обработчик
+    async def on_message(message: aio_pika.IncomingMessage):
+      # Подтверждает обработку
+      async with message.process():
+        # Парсит тело сообщения
+        payload = json.loads(message.body.decode())
+        # Вызывает передний обработчик
+        await handler(payload)
+
+    # 6. Запускает потребление
+    await queue.consume(on_message)
 
 
 # Глобальный инстанс

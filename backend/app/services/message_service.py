@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.models.message import Message
+from app.rabbit.manager import rabbit_manager
 import logging
 
 
@@ -38,6 +39,18 @@ class MessageService:
       db.add(message)             # Добавляем в сессию
       await db.commit()           # Фиксируем изменения в БД
       await db.refresh(message)   # Обновляем объект из БД
+
+      # Event: message.created
+      await rabbit_manager.publish_event(
+        routing_key="message.created",
+        payload={
+          "message_id": message.id,
+          "chat_id": chat_id,
+          "sender_id": sender_id,
+          "content": message.content,
+          "created_at": message.created_at.isoformat(),
+        }
+      )
 
       return message 
     

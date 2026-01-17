@@ -285,7 +285,6 @@ class WebSocketManager:
       )
 
 
-
   async def send_to_user(self, user_id: int, data: dict) -> bool:
     """
     Отправка сообщения всем устройствам пользователя
@@ -405,8 +404,6 @@ class WebSocketManager:
     except JWTError:
       await websocket.close(code=1008)
       raise WebSocketDisconnect
-
-
 
 
   async def _send_to_websocket(self, websocket: WebSocket, data: dict):
