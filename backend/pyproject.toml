@@ -22,7 +22,8 @@ dependencies = [
     "bcrypt (==4.0.1)",
     "asyncpg (>=0.31.0,<0.32.0)",
     "redis (>=7.1.0,<8.0.0)",
-    "alembic (>=1.17.2,<2.0.0)"
+    "alembic (>=1.17.2,<2.0.0)",
+    "aio-pika (>=9.5.8,<10.0.0) ; python_version >= \"3.11\" and python_version < \"4.0\""
 ]
 
 
