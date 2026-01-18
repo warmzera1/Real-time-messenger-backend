@@ -160,6 +160,28 @@ class RedisManager:
       pass
 
 
+  # ============ СОХРАНЕНИЕ СООБЩЕНИЙ ДЛЯ ОФФЛАЙН ПОЛЬЗОВАТЕЛЯ ============
+
+  async def store_offline_message(self, user_id: int, payload: dict):
+    """Сохранение сообщений в Redis для оффлайн пользователя"""
+
+    key = f"offline_messages:{user_id}"
+    await self.redis.rpush(key, json.dumps(payload))
+    await self.redis.expire(key, 7 * 24 * 3600)         # 7 дней
+
+  
+  async def get_and_clear_offline_messages(self, user_id: int) -> list[dict]:
+    """Получить и очистить сообщения отправленные оффлайн пользователю"""
+
+    key = f"offline_messages:{user_id}"
+
+    messages = await self.redis.lrange(key, 0, -1)      # Берет все элементы списка
+    if messages:                                
+      await self.redis.delete(key)
+
+    return [json.loads(m) for m in messages]            # Декодирует из JSON -> список dict
+  
+
   # ============ REFRESH-ТОКЕН ============
 
   async def add_refresh_token(self, jti: str, user_id: int, expires_seconds: int):

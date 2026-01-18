@@ -32,12 +32,17 @@ class MessageCreatedConsumer:
       if user_id == sender_id:
         continue 
 
-      # Пробуем отправить
-      await websocket_manager.send_to_user(
-        user_id=user_id,
-        data={
-          "type": "chat_message",
-          "chat_id": chat_id,
-          "message": payload,
-        },
-      )
+      if await redis_manager.is_user_online(user_id):
+        await websocket_manager.send_to_user(
+          user_id=user_id,
+          data={
+            "type": "chat_message",
+            "chat_id": chat_id,
+            "message": payload,
+          },
+        )
+      else:
+        await redis_manager.store_offline_message(
+          user_id=user_id,
+          payload=payload,
+        )

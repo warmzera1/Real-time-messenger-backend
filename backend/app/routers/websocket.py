@@ -34,7 +34,7 @@ async def websocket_endpoint(
     logger.info(f"Аутентификация WebSocket прошла успешно для пользователя {user['id']}")
 
     # 2. Подключение к менеджеру
-    connected = await websocket_manager.connect(websocket, user)
+    connected = await websocket_manager.connect(websocket)
     if not connected:
       await websocket.close(
         code=status.WS_1011_INTERNAL_ERROR

@@ -44,14 +44,13 @@ class WebSocketManager:
     logger.info("WebSocketManager инициализирован")
 
     
-  async def connect(self, websocket: WebSocket, user_data: dict) -> bool:
+  async def connect(self, websocket: WebSocket) -> bool:
     """
     Подключение пользователя
     Возвращает True при успехе, False при ошибке
     """
 
     try:
-      user_id = user_data["id"]
 
       session_id = str(id(websocket))
 
@@ -66,12 +65,22 @@ class WebSocketManager:
       self.active_connections[user_id].add(websocket)
       self.websocket_to_user[websocket] = user_id
       self.websocket_data[websocket] = {
-        **user_data,
+        "user_id": user_id,
         "session_id": session_id,
       }
 
       # Сообщаем Redis, что пользователь онлайн
       await redis_manager.add_user_session(user_id, session_id)
+
+      # Доставка offline сообщений
+      offline_messages = await redis_manager.get_and_clear_offline_messages(user_id)
+
+      for payload in offline_messages:
+        await websocket.send_json({
+          "type": "chat_message",
+          "chat_id": payload["chat_id"],
+          "message": payload,
+        })
 
       # Подписываемся на чаты пользователя
       await self._subscribe_to_user_chats(user_id)
