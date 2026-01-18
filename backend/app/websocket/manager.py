@@ -9,10 +9,6 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from app.services.chat_service import ChatService
-from app.services.message_service import MessageService
-from app.services.delivery_service import DeliveryService
-from app.services.read_service import ReadService
-from app.services.chat_read_service import ChatReadService
 from app.database import get_db_session
 from app.redis.manager import redis_manager
 from app.core.config import settings
@@ -173,8 +169,8 @@ class WebSocketManager:
           await self._handle_chat_message(websocket, data)
         elif message_type == "pong":
           continue    # Игнориурем PONG, heartbeat обрабатывает
-        elif message_type == "ack":
-          await self._handle_chat_read_ask(websocket, data)
+        elif message_type == "chat_read":
+          await self._handle_chat_read(websocket, data)
         else:
           logger.warning(f"Неизвестный тип сообщения: {message_type}")
     
@@ -190,6 +186,8 @@ class WebSocketManager:
     """
     Отправка сообщения конкретному пользователю через WebSocket
     """
+
+    from app.services.delivery_service import DeliveryService
 
     delivered = await self.send_to_user(user_id, {
       "type": "chat_message",
@@ -229,6 +227,7 @@ class WebSocketManager:
           return
       
         # Сохраняем в БД
+        from app.services.message_service import MessageService
         message_service = MessageService()
         message = await message_service.create_message(
           chat_id=chat_id,
@@ -259,30 +258,58 @@ class WebSocketManager:
       self.metrics["errors"] += 1
 
 
-  async def _handle_chat_read_ask(self, websocket: WebSocket, data: dict):
+  # async def _handle_chat_read_ask(self, websocket: WebSocket, data: dict):
+  #   """
+  #   Обрабатывает клиентские события 'я прочитал чат до сообщенич Х'
+  #   """
+
+  #   user_id = self.websocket_to_user.get(websocket)
+  #   if not user_id:
+  #     logger.warning("ACK без user_id")
+  #     return 
+    
+  #   chat_id = data.get("chat_id")
+  #   last_read_message_id = data.get("last_read_message_id")
+
+  #   if not chat_id or not last_read_message_id:
+  #     logger.warning("Невалидный ACK payload", data)
+  #     return 
+    
+  #   async with get_db_session() as db:
+  #     await ChatReadService().mark_chat_read(
+  #       chat_id=chat_id,
+  #       user_id=user_id,
+  #       last_read_message_id=last_read_message_id,
+  #       db=db,
+  #     )
+
+
+  async def _handle_chat_read(self, websocket: WebSocket, data: dict):
     """
-    Обрабатывает клиентские события 'я прочитал чат до сообщенич Х'
+    Генерирует событие 'кто-то прочитал чат'
     """
+
+    from app.rabbit.manager import rabbit_manager
 
     user_id = self.websocket_to_user.get(websocket)
     if not user_id:
-      logger.warning("ACK без user_id")
       return 
     
     chat_id = data.get("chat_id")
     last_read_message_id = data.get("last_read_message_id")
 
     if not chat_id or not last_read_message_id:
-      logger.warning("Невалидный ACK payload", data)
       return 
     
-    async with get_db_session() as db:
-      await ChatReadService().mark_chat_read(
-        chat_id=chat_id,
-        user_id=user_id,
-        last_read_message_id=last_read_message_id,
-        db=db,
-      )
+    await rabbit_manager.publish_event(
+      routing_key="chat.read",
+      payload={
+        "event": "chat.read",
+        "chat_id": chat_id,
+        "user_id": user_id,
+        "last_read_message_id": last_read_message_id,
+      },
+    )
 
 
   async def send_to_user(self, user_id: int, data: dict) -> bool:
@@ -310,6 +337,21 @@ class WebSocketManager:
       await self.disconnect(ws)
 
     return delivered
+  
+
+  async def broadcast_to_users(
+    self,
+    user_ids: list[int],                        # Список ID-получателей
+    data: dict,                                 # Данные сообщения для отправки
+    exclude_user_id: int | None = None,         # Опциональный ID, который нужно исключить
+  ):
+    """Метод рассылает одно сообщение нескольким пользователям"""
+
+    for user_id in user_ids:                                  # По каждому получателю
+      if exclude_user_id and user_id == exclude_user_id:
+        continue                                              # Пропускаем исключенного
+
+      await self.send_to_user(user_id, data)                  # Отправляем ему данные
   
 
   async def _subscribe_to_user_chats(self, user_id: int):

@@ -3,7 +3,10 @@ import logging
 from typing import Optional, Callable, Awaitable
 
 import aio_pika
-from aio_pika import ExchangeType 
+from aio_pika import ExchangeType
+from app.services.chat_read_service import ChatReadService 
+from app.websocket.manager import websocket_manager
+from app.database import get_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,7 @@ class RabbitMQManager:
     if not self.exchange:
       raise RuntimeError("RabbitMQ не подключен")
     
-    # 2. Создает persistemnt сообщение (сохранится при перезагрузке)
+    # 2. Создает persistent сообщение (сохранится при перезагрузке)
     message = aio_pika.Message(
       body=json.dumps(payload).encode(),                              # Сериализует payload в JSON
       content_type="application/json",
