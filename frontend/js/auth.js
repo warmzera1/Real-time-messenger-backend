@@ -7,105 +7,112 @@ if (hasToken()) {
 }
 
 // Ждем загрузки DOM
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener("DOMContentLoaded", () => {
   const loginForm = document.getElementById("loginForm");
+  const registerButton = document.getElementById("registerButton");
   const errorElement = document.getElementById("error");
-  const togglePassword = document.getElementById("togglePassword");
+
+  const usernameInput = document.getElementById("username");
   const passwordInput = document.getElementById("password");
+  const togglePassword = document.getElementById("togglePassword");
 
   // Показать/скрыть пароль
-  if (togglePassword && passwordInput) {
-    togglePassword.addEventListener("click", function () {
+  if (togglePassword) {
+    togglePassword.addEventListener("click", () => {
       const type = passwordInput.type === "password" ? "text" : "password";
       passwordInput.type = type;
 
       // Меняем иконку глаза
       const icon = this.querySelector("i");
-      if (icon) {
-        icon.classList.toggle("fa-eye");
-        icon.classList.toggle("fa-eye-slash");
-      }
+      icon.classList.toggle("fa-eye");
+      icon.classList.toggle("fa-eye-slash");
     });
   }
 
   // Обработка отправки формы логина
-  loginForm.addEventListener("submit", async function (event) {
+  loginForm.addEventListener("submit", async (event) => {
     event.preventDefault(); // Отменяем обычную отправку формы
+    clearError();
 
-    errorElement.style.display = "none";
-    errorElement.textContent = "";
+    const identifier = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
 
-    const username = document.getElementById("username").value.trim();
-    const password = document.getElementById("password").value.trim();
-
-    if (!username && !password) {
-      showError("Заполните все поля");
+    if (!identifier && !password) {
+      showError("Заполните логин и пароль");
       return;
     }
 
-    // Блокировка кнопки + спиннер
-    const submitButton = loginForm.querySelector("button[type='submit']");
-    const originalText = submitButton.textContent;
-    submitButton.disabled = true;
-    submitButton.innerHTML = "<i class='fas fa-spinner fa-spin'></i> Вход...";
+    disableForm(loginForm, true);
 
     try {
       // Запрос на сервер
       const response = await apiRequest("/auth/login", "POST", {
-        username,
-        password,
+        username: identifier,
+        password: password,
       });
 
       // Успех - сохраняем токен и редирект
-      if (response.access_token) {
-        setTokens(response.access_token);
-        window.location.href = "index.html";
-      } else {
-        showError("Ошибка сервера: токен не получен");
+      if (!response.access_token || !response.refresh_token) {
+        throw new Error("Ошибка сервера: токены не получен");
       }
+
+      setTokens(response.access_token, response.refresh_token);
+      window.location.href = "index.html";
     } catch (error) {
-      // Обработка разных ошибок
-      if (error.status === 401) {
-        showError("Неверный логин или пароль");
-      } else if (error.status === 400) {
-        showError("Неверный формат данных");
-      } else if (error.message.includes("Failed to fetch")) {
-        showError("Нет подключения к серверу");
-      } else {
-        showError(error.message || "Ошибка сервера");
-      }
+      handleAuthError(error);
     } finally {
       // Всегда возвращаем кнопку в нормальное состояние
-      submitButton.disabled = false;
-      submitButton.textContent = originalText;
+      disableForm(loginForm, false);
     }
   });
 
-  // Заглушка для ссылки на регистрацию
-  document
-    .getElementById("registerLink")
-    ?.addEventListener("click", function (e) {
-      e.preventDefault();
-      alert("Регистрация временно не реализована");
-    });
-});
+  // Функция показа ошибки + авто-скрытие
+  function showError(message) {
+    const errorElement = document.getElementById("error");
+    const passwordInput = document.getElementById("password");
 
-// Функция показа ошибки + авто-скрытие
-function showError(message) {
-  const errorElement = document.getElementById("error");
-  const passwordInput = document.getElementById("password");
+    errorElement.textContent = message;
+    errorElement.style.display = "block";
 
-  errorElement.textContent = message;
-  errorElement.style.display = "block";
+    // Очищаем поле пароля и фокус на него
+    if (passwordInput) {
+      passwordInput.value = "";
+      passwordInput.focus();
+    }
 
-  // Очищаем поле пароля и фокус на него
-  if (passwordInput) {
-    passwordInput.value = "";
-    passwordInput.focus();
+    // Автоскрытие ошибки через 5 секунд
+    setTimeout(() => {
+      errorElement.style.display = "none";
+    }, 5000);
   }
 
-  // Автоскрытие ошибки через 5 секунд
-  setTimeout(() => {
+  function clearError() {
+    const errorElement = document.getElementById("error");
+    errorElement.textContent = "";
     errorElement.style.display = "none";
-  }, 5000);
-}
+  }
+
+  function disableForm(form, disabled) {
+    const button = form.querySelector("button[type='submit']");
+    if (!button) return;
+
+    button.disabled = disabled;
+    button.textContent = disabled ? "Загрузка..." : "Войти";
+  }
+
+  function handleAuthError(error) {
+    if (error?.status === 401) {
+      showError("Неверный логин или пароль");
+    } else if (error?.status === 400) {
+      showError("Некорректные данные");
+    } else if (error?.message?.includes("Failed to fetch")) {
+      showError("Нет соединения с сервером");
+    } else {
+      showError(error.message || "Ошибка сервера");
+    }
+  }
+
+  document.getElementById("goToRegister")?.addEventListener("click", () => {
+    window.location.href = "register.html";
+  });
+});

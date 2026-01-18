@@ -10,6 +10,7 @@ export function getJWTToken() {
 export function setTokens(accessToken) {
   if (accessToken) {
     localStorage.setItem("access_token", accessToken);
+    localStorage.setItem("refresh_token", refresh);
   }
 }
 
