@@ -1,15 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, select
 from jose import jwt, JWTError
 
 from app.database import get_db
 from app.schemas.user import UserCreate, LoginForm
-from app.schemas.token import TokenResponse, RefreshTokenRequest
+from app.schemas.token import TokenResponse, RefreshTokenRequest, LogoutRefreshTokenRequest
 from app.models.user import User 
 from app.redis.manager import redis_manager
 from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 from app.core.config import settings
+from app.dependencies.auth import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -174,6 +175,40 @@ async def refresh_token(data: RefreshTokenRequest, db: AsyncSession = Depends(ge
     refresh_token=new_refresh,
     token_type="bearer",
   )
+
+
+@router.post("/logout", status_code=204)
+async def logout(data: LogoutRefreshTokenRequest, current_user: User = Depends(get_current_user)):
+
+  refresh_token = data.refresh_token
+
+  try:
+    payload = jwt.decode(
+      refresh_token,
+      settings.SECRET_KEY,
+      algorithms=[settings.ALGORITHM],
+    )
+
+    if payload.get("type") != "refresh":
+      raise HTTPException(status_code=401, detail="Неверный токен")
+    
+    if str(current_user.id) != payload.get("sub"):
+      raise HTTPException(status_code=403, detail="Токен не принадлежит пользователю")
+    
+    jti = payload.get("jti")
+    if not jti:
+      raise HTTPException(status_code=401, detail="Неверный токен")
+    
+  except JWTError:
+    raise HTTPException(status_code=401)
+  
+  if not await redis_manager.is_refresh_token_valid(jti):
+    raise HTTPException(status_code=401, detail="Refresh токен уже отозван")
+  
+  # revoke refresh
+  await redis_manager.revoke_refresh_token(jti)
+
+  return 
   
 
 

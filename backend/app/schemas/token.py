@@ -13,3 +13,7 @@ class RefreshTokenRequest(BaseModel):
   """Схема для refresh токена"""
 
   refresh_token: str
+
+
+class LogoutRefreshTokenRequest(BaseModel):
+  refresh_token: str
