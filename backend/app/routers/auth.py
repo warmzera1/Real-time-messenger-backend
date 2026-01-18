@@ -55,7 +55,14 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     "sub": str(new_user.id),
   }
   access_token = create_access_token(payload)
-  refresh_token = create_refresh_token(payload)
+  refresh_token, jti = create_refresh_token(payload)
+
+  # Сохраняем jti
+  await redis_manager.add_refresh_token(
+    jti=jti,
+    user_id=new_user.id,
+    expires_seconds=7 * 24 * 3600,
+  )
 
   # 6. Возвращаем ответ
   return TokenResponse(
