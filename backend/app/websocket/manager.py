@@ -198,14 +198,13 @@ class WebSocketManager:
         await self._send_error(websocket, "Неверный формат сообщения")
         return
       
-      # Проверяем, состоимт ли пользователь в чате
+      # Проверяем, что отправитель в чате
       async with get_db_session() as db:
-        is_member = await ChatService().is_user_in_chat(user_id, chat_id, db)
-        if not is_member:
+        if not await ChatService().is_user_in_chat(user_id, chat_id, db):
           await self._send_error(websocket, "Не является участником чата")
           return
       
-        # Сохраняем в БД
+        # Сохраняем сообщение в БД (один раз)
         from app.services.message_service import MessageService
         message_service = MessageService()
         message = await message_service.create_message(
@@ -219,7 +218,7 @@ class WebSocketManager:
           await self._send_error(websocket, "Ошибка при сохранении сообщения")
           return 
         
-        # Публикуем в Redis
+        # Формируем данные сообщения
         message_data = {
           "id": message.id,
           "chat_id": chat_id,
@@ -228,7 +227,16 @@ class WebSocketManager:
           "created_at": message.created_at.isoformat() if message.created_at else None,
         }
 
+        # Всегда публикуем в Redis Pub/Sub один раз - для всех онлайн получателей
         await redis_manager.publish_chat_message(chat_id, message_data)
+
+        # Находим ID второго участника (того, кому идет сообщение)
+        receiver_ids = await ChatService().get_chat_members(chat_id, db)
+        for receiver_id in receiver_ids:
+          if receiver_id != user_id:
+            if not await redis_manager.is_user_online(receiver_id):
+              await redis_manager.store_offline_message(receiver_id, message_data)
+
         logger.debug(f"Сообщение {message.id} опубликовано в чате {chat_id}")
 
     except Exception as e:
