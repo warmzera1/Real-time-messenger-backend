@@ -10,8 +10,6 @@ from app.models.base import Base
 from app.database import engine 
 from app.redis.manager import redis_manager
 from app.websocket.manager import websocket_manager
-from app.rabbit.manager import rabbit_manager
-from app.rabbit.startup import start_consumers
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +53,6 @@ async def lifespan(app: FastAPI):
   except Exception as e:
     logger.warning(f"Redis ошибка подключения (продолжать без): {e}")
 
-  # 3. Подключение RabbitMQ
-  await rabbit_manager.connect()
-  await start_consumers()
 
   logger.info("Приложение запущено успешно")
 

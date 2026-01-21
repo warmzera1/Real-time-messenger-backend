@@ -17,8 +17,6 @@ class Message(Base):
   sender_id = Column(Integer, ForeignKey("users.id"), index=True)
   content = Column(String(2000), nullable=False)
   created_at = Column(DateTime(timezone=True), server_default=func.now())
-  read_at = Column(DateTime, nullable=True)
-  delivered_at = Column(DateTime, nullable=True)
 
   # Связи
   sender = relationship("User", back_populates="sent_messages")

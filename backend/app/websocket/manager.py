@@ -30,8 +30,6 @@ class WebSocketManager:
     self.websocket_to_user: Dict[WebSocket, int] = {}           # ws -> user_id
     self.websocket_data: Dict[WebSocket, dict] = {}             # ws -> user_data 
 
-    # Для heartbeat
-    self.heartbeat_tasks: Dict[WebSocket, asyncio.Task] = {}
 
     # Метрики
     self.metrics = {
@@ -51,11 +49,7 @@ class WebSocketManager:
     """
 
     try:
-
       session_id = str(id(websocket))
-
-      # # Принимаем соединение
-      # await websocket.accept()
 
       user_id = await self.authenticate_websocket(websocket)
 
@@ -84,11 +78,6 @@ class WebSocketManager:
 
       # Подписываемся на чаты пользователя
       await self._subscribe_to_user_chats(user_id)
-
-      # # Запускаем heartbeat
-      # self.heartbeat_tasks[websocket] = asyncio.create_task(
-      #   self._heartbeat(websocket)
-      # )
 
       # Отправляем приветственное сообщение
       await self._send_to_websocket(websocket, {
@@ -123,11 +112,6 @@ class WebSocketManager:
         return
       
       session_id = self.websocket_data.get(websocket, {}).get("session_id")
-
-      # Останавливаем и удаляем задачу heartbeat
-      if websocket in self.heartbeat_tasks:
-        task = self.heartbeat_tasks.pop(websocket)
-        task.cancel()
 
       # Удаляем websocket из множества подключений пользователя
       if user_id:
@@ -176,10 +160,6 @@ class WebSocketManager:
 
         if message_type == "chat_message":
           await self._handle_chat_message(websocket, data)
-        elif message_type == "pong":
-          continue    # Игнориурем PONG, heartbeat обрабатывает
-        elif message_type == "chat_read":
-          await self._handle_chat_read(websocket, data)
         else:
           logger.warning(f"Неизвестный тип сообщения: {message_type}")
     
@@ -196,20 +176,10 @@ class WebSocketManager:
     Отправка сообщения конкретному пользователю через WebSocket
     """
 
-    from app.services.delivery_service import DeliveryService
-
-    delivered = await self.send_to_user(user_id, {
+    await self.send_to_user(user_id, {
       "type": "chat_message",
       "data": data,
     })
-
-    # Если доставка прошла успешно (хоть одному устройству)
-    if delivered:
-      # Отмечаем сообщение как "доставленное" в базе
-      await DeliveryService.mark_delivered(
-        message_id=data["id"],
-        recipient_id=user_id,
-      )
 
 
   async def _handle_chat_message(self, websocket: WebSocket, data: dict):
@@ -256,7 +226,6 @@ class WebSocketManager:
           "sender_id": user_id,
           "content": content,
           "created_at": message.created_at.isoformat() if message.created_at else None,
-          "delivered_at": message.delivered_at.isoformat() if message.delivered_at else None,
         }
 
         await redis_manager.publish_chat_message(chat_id, message_data)
@@ -267,61 +236,7 @@ class WebSocketManager:
       self.metrics["errors"] += 1
 
 
-  # async def _handle_chat_read_ask(self, websocket: WebSocket, data: dict):
-  #   """
-  #   Обрабатывает клиентские события 'я прочитал чат до сообщенич Х'
-  #   """
-
-  #   user_id = self.websocket_to_user.get(websocket)
-  #   if not user_id:
-  #     logger.warning("ACK без user_id")
-  #     return 
-    
-  #   chat_id = data.get("chat_id")
-  #   last_read_message_id = data.get("last_read_message_id")
-
-  #   if not chat_id or not last_read_message_id:
-  #     logger.warning("Невалидный ACK payload", data)
-  #     return 
-    
-  #   async with get_db_session() as db:
-  #     await ChatReadService().mark_chat_read(
-  #       chat_id=chat_id,
-  #       user_id=user_id,
-  #       last_read_message_id=last_read_message_id,
-  #       db=db,
-  #     )
-
-
-  async def _handle_chat_read(self, websocket: WebSocket, data: dict):
-    """
-    Генерирует событие 'кто-то прочитал чат'
-    """
-
-    from app.rabbit.manager import rabbit_manager
-
-    user_id = self.websocket_to_user.get(websocket)
-    if not user_id:
-      return 
-    
-    chat_id = data.get("chat_id")
-    last_read_message_id = data.get("last_read_message_id")
-
-    if not chat_id or not last_read_message_id:
-      return 
-    
-    await rabbit_manager.publish_event(
-      routing_key="chat.read",
-      payload={
-        "event": "chat.read",
-        "chat_id": chat_id,
-        "user_id": user_id,
-        "last_read_message_id": last_read_message_id,
-      },
-    )
-
-
-  async def send_to_user(self, user_id: int, data: dict) -> bool:
+  async def send_to_user(self, user_id: int, data: dict) -> int:
     """
     Отправка сообщения всем устройствам пользователя
     Возвращает факт доставки сообщения пользователю
@@ -330,14 +245,14 @@ class WebSocketManager:
     if user_id not in self.active_connections:
       return False 
     
-    delivered = False
+    delivered_count = 0
     dead_connections = []
 
     for ws in list(self.active_connections[user_id]):
       try:
         await self._send_to_websocket(ws, data)
-        delivered = True
-        logger.info(f"Сообщение доставлено: {delivered}")
+        delivered_count += 1
+        logger.info(f"Доставлено количество сообщений: {delivered_count}")
       except Exception:
         dead_connections.append(ws)
 
@@ -345,22 +260,7 @@ class WebSocketManager:
     for ws in dead_connections:
       await self.disconnect(ws)
 
-    return delivered
-  
-
-  async def broadcast_to_users(
-    self,
-    user_ids: list[int],                        # Список ID-получателей
-    data: dict,                                 # Данные сообщения для отправки
-    exclude_user_id: int | None = None,         # Опциональный ID, который нужно исключить
-  ):
-    """Метод рассылает одно сообщение нескольким пользователям"""
-
-    for user_id in user_ids:                                  # По каждому получателю
-      if exclude_user_id and user_id == exclude_user_id:
-        continue                                              # Пропускаем исключенного
-
-      await self.send_to_user(user_id, data)                  # Отправляем ему данные
+    return delivered_count
   
 
   async def _subscribe_to_user_chats(self, user_id: int):
@@ -389,43 +289,6 @@ class WebSocketManager:
     
     except Exception as e:
       logger.error(f"Ошибка отписки пользователя {user_id} от чатов: {e}")
-
-
-  # async def _heartbeat(self, websocket: WebSocket):
-  #   """Поддержание живого соединения"""
-
-  #   try:
-  #     while True:
-  #       await asyncio.sleep(25)   # Отправляем каждые 25 секунд
-
-  #       try:
-  #         await websocket.send_json({
-  #           "type": "ping"
-  #         })
-
-  #         # Ждем PONG 5 секунд
-  #         response = await asyncio.wait_for(
-  #           websocket.receive_json(),
-  #           timeout=5,
-  #         )
-
-  #         if response.get("type") != "pong":
-  #           logger.warning("Некорректный ответ на PING")
-  #           break
-
-  #       except asyncio.TimeoutError:
-  #         logger.warning("Timeout heartbeat, отключаем")
-  #         break
-  #       except Exception as e:
-  #         logger.error(f"Ошибка hearbeat: {e}")
-  #         break
-
-  #   except asyncio.CancelledError:
-  #     logger.debug("Heartbeat task отменен")
-  #   except Exception as e:
-  #     logger.error(f"Неожиданная ошибка hearbeat: {e}")
-  #   finally:
-  #     await self.disconnect(websocket)
 
 
   async def authenticate_websocket(self, websocket: WebSocket) -> int:
@@ -482,7 +345,7 @@ class WebSocketManager:
 
   
   def get_stats(self) -> dict:
-    """Получить статистику WebSocket-менеджераxn"""
+    """Получить статистику WebSocket-менеджера"""
 
     total_connections = sum(len(devices) for devices in self.active_connections.values())
     unique_users = len(self.active_connections)

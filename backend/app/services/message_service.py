@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.models.message import Message
-from app.rabbit.manager import rabbit_manager
 import logging
 
 
@@ -39,18 +38,6 @@ class MessageService:
       db.add(message)             # Добавляем в сессию
       await db.commit()           # Фиксируем изменения в БД
       await db.refresh(message)   # Обновляем объект из БД
-
-      # Event: message.created
-      await rabbit_manager.publish_event(
-        routing_key="message.created",
-        payload={
-          "message_id": message.id,
-          "chat_id": chat_id,
-          "sender_id": sender_id,
-          "content": message.content,
-          "created_at": message.created_at.isoformat(),
-        }
-      )
 
       return message 
     
@@ -108,37 +95,6 @@ class MessageService:
       return None 
     
   
-  @staticmethod 
-  async def mark_as_delivered(message_id: int, db: AsyncSession) -> bool:
-    """
-    Атомарно отмечает сообщение как доставленное
-    Обновляет delivered_at ТОЛЬКО если поле еще null
-    True - если обновление произошло, False - если уже было доставлено или
-    """
 
-    try:
-      stmt = (
-        update(Message)
-        .where(
-          Message.id == message_id,
-          Message.delivered_at.is_(None)    # Только если еще не доставлено
-      ).values(
-        delivered_at=datetime.utcnow())
-      )
-
-      result = await db.execute(stmt)
-      await db.commit()
-
-      rows_updated = result.rowcount
-
-      if rows_updated > 0:
-        logger.info("Сообщение {message_id} отмечено как доставлено")
-        return True 
-      
-    except Exception as e:
-      await db.rollback()
-      logger.error(f"Ошибка обновления статуса доставки: {e}")
-      return False 
-  
 
  
