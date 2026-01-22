@@ -9,6 +9,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from app.services.chat_service import ChatService
+from app.services.message_service import MessageService
 from app.database import get_db_session
 from app.redis.manager import redis_manager
 from app.core.config import settings
@@ -63,6 +64,13 @@ class WebSocketManager:
         "session_id": session_id,
       }
 
+      # Отправляем приветственное сообщение
+      await self._send_to_websocket(websocket, {
+        "type": "connection_established",
+        "user_id": user_id,
+        "timestamp": datetime.utcnow().isoformat(),
+      })
+
       # Сообщаем Redis, что пользователь онлайн
       await redis_manager.add_user_session(user_id, session_id)
 
@@ -78,13 +86,6 @@ class WebSocketManager:
 
       # Подписываемся на чаты пользователя
       await self._subscribe_to_user_chats(user_id)
-
-      # Отправляем приветственное сообщение
-      await self._send_to_websocket(websocket, {
-        "type": "connection_established",
-        "user_id": user_id,
-        "timestamp": datetime.utcnow().isoformat(),
-      })
 
       # Метрики
       self.metrics["connections_total"] += 1
@@ -198,46 +199,41 @@ class WebSocketManager:
         await self._send_error(websocket, "Неверный формат сообщения")
         return
       
-      # Проверяем, что отправитель в чате
+      # Проверка отправителя
       async with get_db_session() as db:
         if not await ChatService().is_user_in_chat(user_id, chat_id, db):
-          await self._send_error(websocket, "Не является участником чата")
-          return
-      
-        # Сохраняем сообщение в БД (один раз)
-        from app.services.message_service import MessageService
-        message_service = MessageService()
-        message = await message_service.create_message(
+          await self._send_error(websocket, "Не участник чата")
+          return 
+        
+        # Сохраняем в БД
+        message = await MessageService().create_message(
           chat_id=chat_id,
           sender_id=user_id,
           content=content.strip(),
           db=db,
         )
-
         if not message:
-          await self._send_error(websocket, "Ошибка при сохранении сообщения")
+          await self._send_error(websocket, "Ошибка сохранения сообщения")
           return 
         
-        # Формируем данные сообщения
+        # Данные для публикаци и оффлайн
         message_data = {
           "id": message.id,
           "chat_id": chat_id,
           "sender_id": user_id,
           "content": content,
-          "created_at": message.created_at.isoformat() if message.created_at else None,
+          "created_at": message.created_at.isoformat() if message.created_at else None
         }
 
-        # Всегда публикуем в Redis Pub/Sub один раз - для всех онлайн получателей
+        # Всегда публикуем один раз - онлайн получат через Pub/Sub
         await redis_manager.publish_chat_message(chat_id, message_data)
 
-        # Находим ID второго участника (того, кому идет сообщение)
-        receiver_ids = await ChatService().get_chat_members(chat_id, db)
-        for receiver_id in receiver_ids:
+        # Оффлайн - сохраняем если получатель не в сети
+        members = await ChatService().get_chat_members(chat_id, db)
+        for receiver_id in members:
           if receiver_id != user_id:
             if not await redis_manager.is_user_online(receiver_id):
               await redis_manager.store_offline_message(receiver_id, message_data)
-
-        logger.debug(f"Сообщение {message.id} опубликовано в чате {chat_id}")
 
     except Exception as e:
       logger.error(f"Ошибка обработки chat_message: {e}")
