@@ -104,7 +104,7 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
   access_token = create_access_token(payload)
   refresh_token, jti = create_refresh_token(payload)
 
-  await redis_manager.add_refresh_token(jti, user.id, expires_seconds=7*24*3600)
+  # await redis_manager.add_refresh_token(jti, user.id, expires_seconds=7*24*3600)
 
   # 4. Возвращаем ответ
   return TokenResponse(
@@ -146,13 +146,13 @@ async def refresh_token(data: RefreshTokenRequest, db: AsyncSession = Depends(ge
       detail="Невалидный refresh токен",
     )
   
-  if not await redis_manager.is_refresh_token_valid(jti):
-    raise HTTPException(
-      status_code=status.HTTP_401_UNAUTHORIZED,
-      detail="Refresh токен истек или отозван"
-    )
+  # if not await redis_manager.is_refresh_token_valid(jti):
+  #   raise HTTPException(
+  #     status_code=status.HTTP_401_UNAUTHORIZED,
+  #     detail="Refresh токен истек или отозван"
+  #   )
   
-  await redis_manager.revoke_refresh_token(jti)
+  # await redis_manager.revoke_refresh_token(jti)
   
   # 4. Поиск пользователя в БД
   result = await db.execute(
@@ -170,11 +170,11 @@ async def refresh_token(data: RefreshTokenRequest, db: AsyncSession = Depends(ge
   new_access = create_access_token({"sub": user_id})
   new_refresh, new_jti = create_refresh_token({"sub": user_id})
 
-  await redis_manager.add_refresh_token(
-      new_jti, 
-      int(user_id), 
-      expires_seconds=7*24*3600
-  )
+  # await redis_manager.add_refresh_token(
+  #     new_jti, 
+  #     int(user_id), 
+  #     expires_seconds=7*24*3600
+  # )
 
   # 5. Возвращаем ответ
   return TokenResponse(
@@ -209,11 +209,11 @@ async def logout(data: LogoutRefreshTokenRequest, current_user: User = Depends(g
   except JWTError:
     raise HTTPException(status_code=401)
   
-  if not await redis_manager.is_refresh_token_valid(jti):
-    raise HTTPException(status_code=401, detail="Refresh токен уже отозван")
+  # if not await redis_manager.is_refresh_token_valid(jti):
+  #   raise HTTPException(status_code=401, detail="Refresh токен уже отозван")
   
-  # revoke refresh
-  await redis_manager.revoke_refresh_token(jti)
+  # # revoke refresh
+  # await redis_manager.revoke_refresh_token(jti)
 
   return 
   

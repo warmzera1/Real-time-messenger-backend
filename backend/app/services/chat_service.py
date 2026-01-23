@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.chat import ChatRoom
 from app.models.message import Message
 from app.models.participant import participants 
+from app.redis.manager import redis_manager
 
 logger = logging.getLogger(__name__)
 
@@ -160,26 +161,6 @@ class ChatService:
     return result.scalars().all()
   
 
-  @staticmethod
-  async def is_user_in_chat(
-    user_id: int,
-    chat_id: int,
-    db: AsyncSession,
-  ) -> bool:
-    """
-    Проверка, является ли пользователь участником чата
-    """
-
-    stmt = select(
-      participants
-    ).where(
-      participants.c.user_id == user_id,
-      participants.c.chat_id == chat_id,
-    ).limit(1)
-
-    result = await db.execute(stmt)
-    return result.first() is not None
-  
 
 
 

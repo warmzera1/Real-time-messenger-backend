@@ -21,7 +21,6 @@ async def websocket_endpoint(
 
   user = None 
   try:
-    await websocket.accept()
 
     # 1. Аутентификация
     user = await get_current_user_ws(token)
@@ -30,6 +29,8 @@ async def websocket_endpoint(
         code=status.WS_1008_POLICY_VIOLATION
       )
       return 
+    
+    await websocket.accept()
 
     logger.info(f"Аутентификация WebSocket прошла успешно для пользователя {user['id']}")
 
@@ -42,7 +43,7 @@ async def websocket_endpoint(
       return 
     
     # 3. Основной цикл обработки сообщений
-    await websocket_manager.handle_incoming_message(websocket)
+    await websocket_manager.receive_loop(websocket)
 
   except WebSocketDisconnect as e:
     # Нормальное отключение клиента
