@@ -204,25 +204,29 @@ class WebSocketManager:
     
     sender_id = message.get("sender_id")
 
-    for member_str in member_ids:
-      try:
-        member_id = int(member_str)
-        logger.info(f"Пытаемся отправить user {member_id} (онлайн: {await redis_manager.is_user_online(member_id)})")
-        if member_id == sender_id:
-          continue        # Отправителю уже отправили ранее
+    async with get_db_session() as db:
 
-        # Проверяем, онлайн ли участник
-        if await redis_manager.is_user_online(member_id):
-          await self.send_to_user(member_id, {
-            "type": "message",
-            "message": message,
-          })
-        else:
-          await redis_manager.store_offline_message(member_id, message)
+      for member_str in member_ids:
+        try:
+          member_id = int(member_str)
+          logger.info(f"Пытаемся отправить user {member_id} (онлайн: {await redis_manager.is_user_online(member_id)})")
+          if member_id == sender_id:
+            continue        # Отправителю уже отправили ранее
+
+          # Проверяем, онлайн ли участник
+          if await redis_manager.is_user_online(member_id):
+            await self.send_to_user(member_id, {
+              "type": "message",
+              "message": message,
+            })
+
+            await MessageService.mark_delivered(message["id"], db)
+          else:
+            await redis_manager.store_offline_message(member_id, message)
 
 
-      except ValueError:
-        continue 
+        except ValueError:
+          continue 
 
     logger.info(f"Broadcast chat {chat_id}: sender {sender_id}, members {member_ids}")
 
@@ -251,12 +255,16 @@ class WebSocketManager:
   
 
   async def _send_pending_messages(self, user_id: int, ws: WebSocket):
-    messages = await redis_manager.get_and_remove_offline_messages(user_id)
-    for msg in messages:
-      await ws.send_json({
-        "type": "message",
-        "message": msg,
-      })
+
+    async with get_db_session() as db:
+      messages = await redis_manager.get_and_remove_offline_messages(user_id)
+      for msg in messages:
+        await ws.send_json({
+          "type": "message",
+          "message": msg,
+        })
+
+        await MessageService.mark_delivered(msg["id"], db)
 
 
   async def _sync_chat_memberships(self, user_id: int):

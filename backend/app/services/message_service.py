@@ -1,7 +1,7 @@
 from datetime import datetime 
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 
 from app.models.message import Message
 import logging
@@ -94,7 +94,28 @@ class MessageService:
       logger.error(f"[Get Message By ID] Ошибка получения сообщения: {e}")
       return None 
     
-  
+
+  @staticmethod
+  async def mark_delivered(
+    message_id: int,
+    db: AsyncSession,
+  ) -> bool:
+    """Сообщение доставлено"""
+    
+    stmt = (
+      update(Message)
+      .where(
+        Message.id == message_id,
+        Message.delivered_at.is_(None),
+      )
+      .values(delivered_at=func.now())
+      .returning(Message.id)
+    ) 
+
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return bool(result.scalar_one_or_none())
 
 
  

@@ -16,6 +16,7 @@ class Message(Base):
   chat_id = Column(Integer, ForeignKey("chat_rooms.id"), index=True)
   sender_id = Column(Integer, ForeignKey("users.id"), index=True)
   content = Column(String(2000), nullable=False)
+  delivered_at = Column(DateTime(timezone=True), nullable=True, index=True)
   created_at = Column(DateTime(timezone=True), server_default=func.now())
 
   # Связи
