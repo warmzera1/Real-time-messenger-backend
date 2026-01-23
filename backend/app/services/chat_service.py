@@ -75,7 +75,11 @@ class ChatService:
         return existing_chat
       
       # Создание нового чата
-      return await ChatService._create_private_chat(user1_id, user2_id, db)
+      chat = await ChatService._create_private_chat(user1_id, user2_id, db)
+      await redis_manager.add_user_to_chat(user1_id, chat.id)
+      await redis_manager.add_user_to_chat(user2_id, chat.id)
+
+      return chat
     
     except Exception as e:
       logger.error(f"Ошибка создания чата: {e}")

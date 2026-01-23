@@ -8,7 +8,7 @@ from app.schemas.chat import ChatRoomCreate, ChatRoomResponse, ChatRoomIdRespons
 from app.schemas.user import UserResponse 
 from app.dependencies.auth import get_current_user
 from app.models.user import User 
-from app.services.chat_service import ChatService 
+from app.services.chat_service import ChatService
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -45,6 +45,7 @@ async def create_chat(
     user2_id=chat_data.second_user_id,
     db=db,
   )
+
 
   if not chat:
     raise HTTPException(
@@ -87,16 +88,3 @@ async def create_chat(
 #   )
 
 #   return users
-
-
-@router.get("/")
-async def get_users_chats(
-  current_user: User = Depends(get_current_user),
-  db: AsyncSession = Depends(get_db),
-):
-  """Получить чаты конкретного пользователя с количеством непрочитанных сообщений"""
-
-  return await ChatService.get_user_chats_with_unread_count(
-    user_id=current_user.id,
-    db=db,
-  )
