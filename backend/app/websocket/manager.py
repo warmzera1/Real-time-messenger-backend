@@ -108,6 +108,9 @@ class WebSocketManager:
 
         if msg_type == "message":
           await self._handle_user_message(user_id, data)
+
+        elif msg_type == "read":
+          await self._handle_read_message(user_id, data)
         else:
           logger.debug(f"Неизвестный тип сообщения: {msg_type}")
         
@@ -169,6 +172,52 @@ class WebSocketManager:
       "type": "message",
       "message": message,
     })
+
+
+  async def _handle_read_message(self, user_id: int, data: dict):
+    """Обработка отметки сообщения как прочитанного"""
+
+    message_id = data.get("message", {}).get("id")
+    if not message_id:
+      logger.warning(f"Пользователь {user_id} отправленно прочтение без ID")
+      return 
+    
+    async with get_db_session() as db:
+      # Проверяем существование сообщения и получаем данные 
+      message = await MessageService.get_message_by_id(message_id, db)
+      if not message:
+        logger.warning(f"Сообщение {message_id} не найдено")
+        return 
+      
+      # Проверяем, что пользователь - получатель (не отправитель)
+      if message.sender_id == user_id:
+        logger.debug(f"Пользователь {user_id} пытается прочитать свое сообщение {message_id}")
+        return
+
+      # Проверяем, что пользователь участник чата 
+      ids_chat_members = await ChatService.get_chat_members(message.chat_id, db)
+
+      is_member = False 
+      for member_id in ids_chat_members:
+        if user_id == member_id:
+          is_member = True 
+          break
+
+      if not is_member:
+        logger.warning(f"Пользователь {user_id} не состоит в чате {message.chat_id}")
+        return
+
+      # Проверяем, что сообщение еще не прочитано
+      if message.read_at is not None:
+        logger.debug(f"Сообщение {message_id} уже прочиатно в {message.read_at}")
+        return
+
+      success = await MessageService.read_message(message_id=message_id, db=db)
+      if success:
+        logger.info(f"Сообщение {message_id} прочитано пользователем {user_id}")
+      else:
+        logger.error(f"Ошибка прочтения сообщений {message_id} пользователем {user_id}")
+
 
 
   async def send_to_user(self, user_id: int, payload: dict) -> bool:

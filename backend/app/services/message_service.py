@@ -116,6 +116,29 @@ class MessageService:
     await db.commit()
 
     return bool(result.scalar_one_or_none())
+  
+
+  @staticmethod 
+  async def read_message(
+    message_id: int,
+    db: AsyncSession
+  ) -> bool:
+    """Сообщение прочитано"""
+
+    stmt = (
+      update(Message)
+      .where(
+        Message.id == message_id,
+        Message.read_at.is_(None)
+      )
+      .values(read_at=func.now())
+      .returning(Message.id)
+    )
+
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return bool(result.scalar_one_or_none())
 
 
  
