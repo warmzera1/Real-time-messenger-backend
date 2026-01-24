@@ -1,9 +1,11 @@
 from datetime import datetime 
+
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select, update, func
 
 from app.models.message import Message
+from app.services.chat_service import ChatService
 import logging
 
 
@@ -100,7 +102,7 @@ class MessageService:
     message_id: int,
     db: AsyncSession,
   ) -> bool:
-    """Сообщение доставлено"""
+    """Отмечает сообщение как доставленное"""
     
     stmt = (
       update(Message)
@@ -119,26 +121,65 @@ class MessageService:
   
 
   @staticmethod 
-  async def read_message(
+  async def mark_as_read(
     message_id: int,
+    reader_id: int,
     db: AsyncSession
-  ) -> bool:
-    """Сообщение прочитано"""
+  ):
+    """Отмечает сообщение как доставленное"""
 
-    stmt = (
-      update(Message)
-      .where(
-        Message.id == message_id,
-        Message.read_at.is_(None)
+    # stmt = (
+    #   update(Message)
+    #   .where(
+    #     Message.id == message_id,
+    #     Message.read_at.is_(None)
+    #   )
+    #   .values(read_at=func.now())
+    #   .returning(Message.id)
+    # )
+
+    # result = await db.execute(stmt)
+    # await db.commit()
+
+    # return bool(result.scalar_one_or_none())
+  
+    try:
+      message = await MessageService.get_message_by_id(message_id, db)
+      if not message:
+        return None 
+      
+      if message.sender_id == reader_id:
+        logger.debug(f"Пользователь {reader_id} пытается прочитать свое сообщение")
+        return None 
+      
+      is_participant = await ChatService.is_user_in_chat(
+        user_id=reader_id,
+        chat_id=message.chat_id,
+        db=db
       )
-      .values(read_at=func.now())
-      .returning(Message.id)
-    )
 
-    result = await db.execute(stmt)
-    await db.commit()
+      if not is_participant:
+        return None 
+      
+      update_stmt = (
+        update(Message)
+        .where(
+          Message.id == message_id,
+          Message.read_at.is_(None),
+        )
+        .values(read_at=func.now())
+        .returning(Message.id, Message.sender_id, Message.chat_id)
+      )
 
-    return bool(result.scalar_one_or_none())
+      result = await db.execute(update_stmt)
+      await db.commit()
+
+      return result.fetchone()
+    
+    except Exception as e:
+      await db.rollback()
+      logger.error(f"[Mark As Read] Ошибка: {e}")
+      return None 
 
 
  
