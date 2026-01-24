@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func
 
 from app.models.message import Message
+from app.models.participant import participants
 from app.services.chat_service import ChatService
 import logging
 
@@ -121,65 +122,40 @@ class MessageService:
   
 
   @staticmethod 
-  async def mark_as_read(
-    message_id: int,
+  async def mark_messages_as_read(
+    message_ids: list[int],
     reader_id: int,
     db: AsyncSession
-  ):
-    """Отмечает сообщение как доставленное"""
+  ) -> int:
+    """
+    Отмечает несколько сообщений как прочитанные одним запросом
+    Возвращает количество обновленных записей
+    """
 
-    # stmt = (
-    #   update(Message)
-    #   .where(
-    #     Message.id == message_id,
-    #     Message.read_at.is_(None)
-    #   )
-    #   .values(read_at=func.now())
-    #   .returning(Message.id)
-    # )
-
-    # result = await db.execute(stmt)
-    # await db.commit()
-
-    # return bool(result.scalar_one_or_none())
-  
-    try:
-      message = await MessageService.get_message_by_id(message_id, db)
-      if not message:
-        return None 
-      
-      if message.sender_id == reader_id:
-        logger.debug(f"Пользователь {reader_id} пытается прочитать свое сообщение")
-        return None 
-      
-      is_participant = await ChatService.is_user_in_chat(
-        user_id=reader_id,
-        chat_id=message.chat_id,
-        db=db
-      )
-
-      if not is_participant:
-        return None 
-      
-      update_stmt = (
-        update(Message)
-        .where(
-          Message.id == message_id,
-          Message.read_at.is_(None),
-        )
-        .values(read_at=func.now())
-        .returning(Message.id, Message.sender_id, Message.chat_id)
-      )
-
-      result = await db.execute(update_stmt)
-      await db.commit()
-
-      return result.fetchone()
+    if not message_ids:
+      return 0
     
-    except Exception as e:
-      await db.rollback()
-      logger.error(f"[Mark As Read] Ошибка: {e}")
-      return None 
+    stmt = (
+      update(Message)
+      .where(
+        Message.id.in_(message_ids),
+        Message.sender_id != reader_id,
+        Message.read_at.is_(None),
+        Message.chat_id.in_(
+          select(participants.c.chat_id)
+          .where(participants.c.user_id == reader_id)
+        )
+      )
+      .values(read_at=func.now())
+    )
+
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return result.rowcount
+  
+
+  
 
 
  

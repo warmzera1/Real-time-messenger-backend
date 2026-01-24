@@ -175,15 +175,23 @@ class WebSocketManager:
 
 
   async def _handle_read_message(self, user_id: int, data: dict):
-    """Обработка отметки сообщения как прочитанного"""
+    """Обработка отметки сообщений как прочитанных (батчинг)"""
 
-    message_id = data.get("message", {}).get("id")
-    if not message_id:
-      logger.warning(f"Пользователь {user_id} отправленно прочтение без ID")
+    message_ids = data.get("message_ids", [])
+    if not message_ids:
+      return 
+    
+    message_ids = [mid for mid in message_ids if isinstance(mid, int)]
+    if not message_ids:
       return 
     
     async with get_db_session() as db:
-      await MessageService.mark_as_read(message_id, user_id, db)
+      updated = await MessageService.mark_messages_as_read(
+        message_ids=message_ids,
+        reader_id=user_id,
+        db=db,
+      )
+      logger.debug(f"Прочитано {updated} сообщений для пользователя {user_id}")
 
 
   async def send_to_user(self, user_id: int, payload: dict) -> bool:
