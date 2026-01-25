@@ -1,4 +1,6 @@
 import logging 
+import asyncio
+
 from datetime import datetime 
 from typing import Dict
 
@@ -30,9 +32,10 @@ class WebSocketManager:
     1. Аутентификация по JWT из query-параметра
     2. Если уже есть соединение -> закрываем старое
     3. Сохраняем новое
-    4. Отправляем приветствие
-    5. Отмечаем пользователя онлайн в Redis
-    6. Отправляем накопленные оффлайн-сообщения 
+    5. Запуск heartbeat
+    6. Отправляем приветствие
+    7. Отмечаем пользователя онлайн в Redis
+    8. Отправляем накопленные оффлайн-сообщения 
     """
 
     try:
@@ -89,11 +92,16 @@ class WebSocketManager:
       await redis_manager.mark_user_offline(user_id)
       logger.info(f"Пользователь {user_id} отключился")
 
-  
+
   async def receive_loop(self, ws: WebSocket):
     """
-    Основной цикл чтения сообщения от клиента
+    Основной цикл чтения сообщения от клиента 
+    с проверкой активности соединения
     """
+
+    missed = 0
+    max_missed = 3
+    ping_interval_sec = 10
 
     user_id = self._find_user_by_ws(ws)
     if not user_id:
@@ -102,18 +110,31 @@ class WebSocketManager:
     
     try:
       while True:
-        data = await ws.receive_json()
+        try:
+          data = await asyncio.wait_for(
+            ws.receive_json(), 
+            timeout=ping_interval_sec
+          )
 
-        msg_type = data.get("type")
+          msg_type = data.get("type")
 
-        if msg_type == "message":
-          await self._handle_user_message(user_id, data)
+          if msg_type == "pong":
+            missed = 0
+          elif msg_type == "message":
+            await self._handle_user_message(user_id, data)
+          elif msg_type == "read":
+            await self._handle_read_message(user_id, data)
+          else:
+            logger.debug(f"Неизвестный тип сообщения: {msg_type}")
 
-        elif msg_type == "read":
-          await self._handle_read_message(user_id, data)
-        else:
-          logger.debug(f"Неизвестный тип сообщения: {msg_type}")
-        
+        except asyncio.TimeoutError:
+            await ws.send_json({"type": "ping"})
+            missed += 1
+
+            if missed >= max_missed:
+              await self.disconnect(ws)
+              break 
+
     except WebSocketDisconnect:
       await self.disconnect(ws)
     except Exception as e:
