@@ -280,9 +280,15 @@ class WebSocketManager:
 
 
   async def _authenticate(self, ws: WebSocket) -> int:
-    token = ws.query_params.get("token")
+    token = ws.headers.get("authorization")
+    if not token or not token.startswith("Bearer "):
+      await ws.close(code=1008)
+      return None 
+
+    token = token[7:].strip()
     if not token:
-      raise WebSocketDisconnect("Требуется токен")
+      await ws.close(code=1008)
+      return None 
     
     try:
       payload = jwt.decode(

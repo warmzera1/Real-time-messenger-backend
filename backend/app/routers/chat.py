@@ -56,35 +56,35 @@ async def create_chat(
   return chat
 
 
-# @router.get("/", response_model=List[ChatRoomIdResponse])
-# async def get_user_chats(
-#   current_user: User = Depends(get_current_user),
-#   db: AsyncSession = Depends(get_db),
-# ):
-#   """
-#   Список чатов пользователя
-#   """
+@router.get("/", response_model=List[ChatRoomIdResponse])
+async def get_user_chats(
+  current_user: User = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db),
+):
+  """
+  Список чатов пользователя
+  """
 
-#   chats = await ChatService.get_user_chat_ids(current_user.id, db)
-#   return [{"id": chat_id} for chat_id in chats]
+  chats = await ChatService.get_user_chat_ids(current_user.id, db)
+  return [{"id": chat_id} for chat_id in chats]
 
 
-# @router.get("/search", response_model=List[UserResponse])
-# async def search_users(
-#   q: str = Query(..., min_length=2, description="Поиск пользователя"),
-#   current_user: User = Depends(get_current_user),
-#   db: AsyncSession = Depends(get_db),
-#   limit: int = Query(20, ge=1, le=100)
-# ):
-#   """
-#   Поиск пользователя (исключая текущего)
-#   """
+@router.get("/search", response_model=List[UserResponse])
+async def search_users(
+  q: str = Query(..., min_length=2, description="Поиск пользователя"),
+  current_user: User = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db),
+  limit: int = Query(20, ge=1, le=100)
+):
+  """
+  Поиск пользователя (исключая текущего)
+  """
 
-#   users = await ChatService.search_users(
-#     query=q,
-#     exclude_user_id=current_user.id,
-#     limit=limit,
-#     db=db,
-#   )
+  users = await ChatService.search_users(
+    query=q,
+    exclude_user_id=current_user.id,
+    limit=limit,
+    db=db,
+  )
 
-#   return users
+  return users

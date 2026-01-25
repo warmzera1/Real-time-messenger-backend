@@ -212,7 +212,6 @@ async def logout(data: LogoutRefreshTokenRequest, current_user: User = Depends(g
   if not await redis_manager.is_refresh_token_valid(jti):
     raise HTTPException(status_code=401, detail="Refresh токен уже отозван")
   
-  # revoke refresh
   await redis_manager.revoke_refresh_token(jti)
 
   return 
