@@ -109,6 +109,22 @@ class RedisManager:
         logger.error(f"Pub/Sub ошибка: {e}", exc_info=True)
 
 
+  # ===== RATE LIMITING =====
+  async def rate_limiting_check(self, user_id: int, max_requests: int = 5, window_sec: int = 10) -> bool:
+    key = f"ratelimit:msg:{user_id}"
+    now = int(datetime.utcnow().timestamp())
+
+    await self.redis.zremrangebyscore(key, "-inf", now - window_sec)
+    count = await self.redis.zcard(key)
+    if count >= max_requests:
+      return False 
+    
+    await self.redis.zadd(key, {str(now): now})
+    await self.redis.expire(key, window_sec + 10)
+    
+    return True 
+
+
   # ===== REFRESH - ТОКЕН =====
 
   async def add_refresh_token(self, jti: str, user_id: int, expires_seconds: int):

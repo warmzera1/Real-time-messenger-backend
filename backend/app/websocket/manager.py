@@ -129,6 +129,10 @@ class WebSocketManager:
     - отправка сообщения отправителю (чтобы увидел свое сообщение)
     """
 
+    if not await redis_manager.rate_limiting_check(user_id):
+        await self._send_error(user_id, "Слишком много сообщений. Подождите 10 секунд")
+        return
+
     chat_id = data.get("chat_id")
     content = (data.get("content") or "").strip()
 
@@ -165,7 +169,7 @@ class WebSocketManager:
       }
 
     # Публием в Redis -> все инстансы получат
-    await redis_manager.publish_to_chat(chat_id, message)
+    await redis_manager.publish_to_chat(chat_id, message) 
 
     # Показываем отправителю сразу
     await self.send_to_user(user_id, {
