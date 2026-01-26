@@ -124,7 +124,7 @@ async def edit_message(
   success = await MessageService.edit_message(
     message_id=message_id,
     user_id=current_user.id,
-    content=request.content,
+    new_content=request.content,
     db=db,
   )
   if not success:

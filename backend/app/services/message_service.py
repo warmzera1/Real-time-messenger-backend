@@ -4,7 +4,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select, update, func
 
-from app.models.message import Message
+from app.models.message import Message, MessageEdit, MessageRead
 from app.models.participant import participants
 from app.services.chat_service import ChatService
 import logging
@@ -168,9 +168,8 @@ class MessageService:
       .where(
         Message.id == message_id,
         Message.sender_id == user_id,
-        Message.is_deleted == False,
       )
-      .values(is_deleted=True)
+      .join(MessageEdit)
     )
 
     if result.rowcount == 0:
@@ -185,27 +184,29 @@ class MessageService:
   async def edit_message(
     message_id: int, 
     user_id: int, 
-    content: str,
+    new_content: str,
     db: AsyncSession
   ) -> bool:
-    """Измненение сообщения конкретного пользователя"""
+    """Редактирование сообщения конкретного пользователя"""
 
-    result = await db.execute(
-      update(Message)
-      .where(
-        Message.id == message_id,
-        Message.sender_id == user_id,
-      )
-      .values(
-        content=content,
-        is_edited=True,
-      )
-    )
-
-    if result.rowcount == 0:
-      db.rollback()
+    msg = await db.get(Message, message_id)
+    if not msg or msg.sender_id != user_id or msg.is_deleted:
       return False 
     
+    old_content = msg.content 
+
+    edit = MessageEdit(
+      message_id=message_id,
+      user_id=user_id,
+      old_content=old_content,
+      new_content=new_content,
+      edited_at=func.now(),
+    )
+    db.add(edit)
+    
+    msg.content = new_content 
+    msg.is_edited = True 
+
     await db.commit()
     return True 
       

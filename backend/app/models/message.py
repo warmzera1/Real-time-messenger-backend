@@ -30,6 +30,11 @@ class Message(Base):
     back_populates="message",
     cascade="all, delete-orphan"
   )
+  edits_history = relationship(
+    "MessageEdit", 
+    back_populates="message",
+    cascade="all, delete-orphan"
+  )
 
 
 class MessageRead(Base):
@@ -53,3 +58,24 @@ class MessageRead(Base):
   # Связи
   message = relationship("Message", back_populates="read_by_users")
   user = relationship("User", back_populates="read_messages")
+
+
+class MessageEdit(Base):
+  """
+  Таблица для отслеживания редактирования сообщений пользователями
+  Позволяет хранить, кто и какое сообщение отредактировал
+  """
+
+  __tablename__ = "message_edits"
+
+  id = Column(Integer, primary_key=True, index=True)
+  message_id = Column(Integer, ForeignKey("messages.id"), nullable=False, index=True)
+  user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+  old_content = Column(String(2000), nullable=False)
+  new_content = Column(String(2000), nullable=False)
+  edited_at = Column(DateTime, default=func.now())
+
+  message = relationship("Message", back_populates="edits_history")
+  user = relationship("User", back_populates="edited_messages")
+
+
