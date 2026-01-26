@@ -25,6 +25,8 @@ class MessageResponse(BaseModel):
   content: str 
   created_at: datetime
   delivered_at: Optional[datetime] = None
+  read_at: datetime 
+  is_delete: bool 
 
     
   # Комбинированная конфигурация

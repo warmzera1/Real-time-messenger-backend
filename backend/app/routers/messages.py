@@ -93,3 +93,23 @@ async def get_messages(
   )
 
   return messages
+
+
+@router.delete("/{message_id}/delete", status_code=204)
+async def delete_message(
+  message_id: int,
+  current_user: User = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db),
+):
+  """Удаление сообщения"""
+
+  success = await MessageService.delete_message(
+    message_id=message_id,
+    user_id=current_user.id,
+    db=db,
+  )
+  if not success:
+    raise HTTPException(404, "Сообщение не найден или не ваше")
+  
+
+

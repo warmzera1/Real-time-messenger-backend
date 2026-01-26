@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func 
 from datetime import datetime
@@ -19,6 +19,7 @@ class Message(Base):
   delivered_at = Column(DateTime(timezone=True), nullable=True, index=True)
   read_at = Column(DateTime(timezone=True), nullable=True)
   created_at = Column(DateTime(timezone=True), server_default=func.now())
+  is_deleted = Column(Boolean, nullable=False, default=False, server_default="false")
 
   # Связи
   sender = relationship("User", back_populates="sent_messages")

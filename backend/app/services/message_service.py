@@ -155,6 +155,32 @@ class MessageService:
     return result.rowcount
   
 
+  @staticmethod 
+  async def delete_message(
+    message_id: int, 
+    user_id: int, 
+    db: AsyncSession
+  ):
+    """Удаление сообщения конкретного пользователя"""
+
+    result = await db.execute(
+      update(Message)
+      .where(
+        Message.id == message_id,
+        Message.sender_id == user_id,
+        Message.is_deleted == False,
+      )
+      .values(is_deleted=True)
+    )
+
+    if result.rowcount == 0:
+      await db.rollback()
+      return False
+
+    await db.commit()
+    return True
+  
+
   
 
 
