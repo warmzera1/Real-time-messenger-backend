@@ -20,6 +20,7 @@ class Message(Base):
   read_at = Column(DateTime(timezone=True), nullable=True)
   created_at = Column(DateTime(timezone=True), server_default=func.now())
   is_deleted = Column(Boolean, nullable=False, default=False, server_default="false")
+  is_edited = Column(Boolean, nullable=False, default=False, server_default="false")
 
   # Связи
   sender = relationship("User", back_populates="sent_messages")

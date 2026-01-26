@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List 
 
 from app.database import get_db 
-from app.schemas.message import MessageCreate, MessageResponse 
+from app.schemas.message import MessageCreate, MessageResponse, MessageEdit
 from app.models.user import User
 from app.dependencies.auth import get_current_user 
 from app.services.message_service import MessageService 
@@ -109,7 +109,26 @@ async def delete_message(
     db=db,
   )
   if not success:
-    raise HTTPException(404, "Сообщение не найден или не ваше")
+    raise HTTPException(404, "Сообщение не найден или не Ваше")
+  
+
+@router.patch("/{message_id}/edit")
+async def edit_message(
+  request: MessageEdit,
+  message_id: int,
+  current_user: User = Depends(get_current_user),
+  db: AsyncSession = Depends(get_db),
+):
+  """Изменение сообщения"""
+
+  success = await MessageService.edit_message(
+    message_id=message_id,
+    user_id=current_user.id,
+    content=request.content,
+    db=db,
+  )
+  if not success:
+    raise HTTPException(404, "Сообщение не найдено или не Ваше")
   
 
 

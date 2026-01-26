@@ -181,6 +181,37 @@ class MessageService:
     return True
   
 
+  @staticmethod 
+  async def edit_message(
+    message_id: int, 
+    user_id: int, 
+    content: str,
+    db: AsyncSession
+  ) -> bool:
+    """Измненение сообщения конкретного пользователя"""
+
+    result = await db.execute(
+      update(Message)
+      .where(
+        Message.id == message_id,
+        Message.sender_id == user_id,
+      )
+      .values(
+        content=content,
+        is_edited=True,
+      )
+    )
+
+    if result.rowcount == 0:
+      db.rollback()
+      return False 
+    
+    await db.commit()
+    return True 
+      
+
+  
+
   
 
 
