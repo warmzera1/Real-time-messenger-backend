@@ -2,7 +2,6 @@ import logging
 import asyncio
 
 from datetime import datetime 
-from typing import Dict
 
 from fastapi import WebSocket, WebSocketDisconnect
 from jose import jwt, JWTError
@@ -16,97 +15,152 @@ from app.database import get_db_session
 logger = logging.getLogger(__name__)
 
 
-class WebSocketManager:
-  """
-  Управляет активными WebSocket-соединениями 
-  Один пользователь -> одно активное соединение
-  """
+class AuthHandler:
+  """Аутентификация WebSocket"""
 
-  def __init__(self):
-    # user_id -> WebSocket
-    self.connections: Dict[int, WebSocket] = {}
+  async def authenticate(self, ws: WebSocket) -> int | None:
+    token = ws.headers.get("authorization")
+    if not token or not token.startswith("Bearer "):
+      await ws.close(code=1008)
+      return None 
 
-  
-  async def connect(self, ws: WebSocket):
+    token = token[7:].strip()
+    try:
+      payload = jwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=[settings.ALGORITHM]
+      )
+      return int(payload["sub"])
+    except (JWTError, ValueError, KeyError):
+      await ws.close(code=1008)
+      return None 
+    
+
+class ConnectionManager:
+  """Онлайн-соединения, connect/disconnect"""
+
+  def __init__(
+    self, 
+    auth_handler: AuthHandler,
+    membership_sync: "ChatMembershipSync",
+  ):
+    self.auth_handler = auth_handler
+    self.membership_sync = membership_sync
+    self.connections: dict[int, WebSocket] = {}
+
+
+  async def connect(self, ws: WebSocket) -> int | None : 
     """
-    1. Аутентификация по JWT из query-параметра
-    2. Если уже есть соединение -> закрываем старое
-    3. Сохраняем новое
-    5. Запуск heartbeat
-    6. Отправляем приветствие
-    7. Отмечаем пользователя онлайн в Redis
-    8. Отправляем накопленные оффлайн-сообщения 
+    Подключение и отмечаем пользователя онлайн
     """
 
     try:
-      user_id = await self._authenticate(ws)
+      user_id = await self.auth_handler.authenticate(ws)
+      if user_id is None:
+        return None  
 
-      # Закрываем предыдущее соединение, если было
       if user_id in self.connections:
-        try:
-          await self.connections[user_id].close()
-        except:
-          pass 
+        await self.connections[user_id].close(code=1000)
 
       self.connections[user_id] = ws 
 
-      # Синхронизуем членство в чатах
-      await self._sync_chat_memberships(user_id)
+      await self.membership_sync.sync_chat_memberships(user_id)
 
-      # Приветственное сообщение
+      await redis_manager.mark_user_online(user_id)
+
       await ws.send_json({
         "type": "connected",
         "user_id": user_id,
         "timestamp": datetime.utcnow().isoformat(),
       })
 
-      # Отмечаем онлайн в Redis (TTL ~ 60-90 сек)
-      await redis_manager.mark_user_online(user_id)
-
-      # Доставляем оффлайн-сообщения
-      await self._send_pending_messages(user_id, ws)
-
       logger.info(f"Пользователь {user_id} подключен")
 
-      return True
+      return user_id
 
     except Exception as e:
       logger.warning(f"Подключение неудалось: {e}")
       await ws.close(code=1008) 
-      return False 
-
+      return None 
+    
   
   async def disconnect(self, ws: WebSocket):
     """
     Удаляем соединение и отмечаем пользователя оффлайн
     """
 
-    user_id = None
-    for uid, active_ws in list(self.connections.items()):
-      if active_ws == ws:
-        user_id = uid
-        break 
+    user_id = self.find_user_by_ws(ws)
+    if user_id is None:
+      return 
+    
+    self.connections.pop(user_id, None)
+    await redis_manager.mark_user_offline(user_id)
 
-    if user_id:
-      del self.connections[user_id]
-      await redis_manager.mark_user_offline(user_id)
-      logger.info(f"Пользователь {user_id} отключился")
+    try:
+      await ws.close(code=1000)
+    except Exception:
+      pass
 
+  
+  def find_user_by_ws(self, ws: WebSocket) -> int | None:
+    for uid, active in self.connections.items():
+      if active == ws:
+        return uid 
+    return None 
 
+  
+  async def send_to_user(self, user_id: int, payload: dict) -> bool:
+    """
+    Отправляет данные конкретному пользователю, если он онлайн
+    """
+
+    ws = self.connections.get(user_id)
+    if not ws:
+      return False 
+    
+    try:
+      await ws.send_json(payload)
+      return True 
+    except Exception:
+      await self.disconnect(ws)
+      return False 
+  
+
+  async def send_error(self, user_id: int, text: str):
+    await self.send_to_user(user_id, {
+      "type": "error",
+      "message": text,
+      "timestamp": datetime.utcnow().isoformat(),
+    })
+    
+
+class MessageHandler():
+  """Обработка входящих WS-сообщений"""
+
+  def __init__(
+    self, 
+    connection_manager: ConnectionManager,
+    delivery_manager: "DeliveryManager",
+  ):
+    self.connection_manager = connection_manager
+    self.delivery_manager = delivery_manager
+  
+    
   async def receive_loop(self, ws: WebSocket):
     """
     Основной цикл чтения сообщения от клиента 
     с проверкой активности соединения
     """
 
-    missed = 0
-    max_missed = 3
-    ping_interval_sec = 1000
-
-    user_id = self._find_user_by_ws(ws)
-    if not user_id:
+    user_id = self.connection_manager.find_user_by_ws(ws)
+    if user_id is None:
       await ws.close()
       return 
+    
+    missed = 0
+    max_missed = 3
+    ping_interval_sec = 25
     
     try:
       while True:
@@ -121,81 +175,86 @@ class WebSocketManager:
           if msg_type == "pong":
             missed = 0
           elif msg_type == "message":
-            await self._handle_user_message(user_id, data)
+            await self.handle_user_message(user_id, data)
           elif msg_type == "read":
-            await self._handle_read_message(user_id, data)
+            await self.handle_read_message(user_id, data)
           elif msg_type == "edit_message":
-            await self._handle_edit_message(user_id, data)
+            await self.handle_edit_message(user_id, data)
           else:
             logger.debug(f"Неизвестный тип сообщения: {msg_type}")
 
         except asyncio.TimeoutError:
             await ws.send_json({"type": "ping"})
             missed += 1
-
             if missed >= max_missed:
-              await self.disconnect(ws)
+              await self.connection_manager.disconnect(ws)
               break 
 
     except WebSocketDisconnect:
-      await self.disconnect(ws)
+      await self.connection_manager.disconnect(ws)
     except Exception as e:
       logger.error(f"Ошибка в receive loop: {e}")
-      await self.disconnect(ws)
+      await self.connection_manager.disconnect(ws)
 
 
-  async def _handle_user_message(self, user_id: int, data: dict):
+  async def handle_user_message(self, user_id: int, data: dict):
     """
-    Обрабатывает сообщение от пользователя:
-    - базовая валидация
-    - публикация в Redis каналы
-    - отправка сообщения отправителю (чтобы увидел свое сообщение)
+    Обрабатывает сообщение от пользователя
     """
 
     if not await redis_manager.rate_limiting_check(user_id):
-        await self._send_error(user_id, "Слишком много сообщений. Подождите 10 секунд")
+        await self.connection_manager.send_error(
+          user_id, 
+          "Слишком много сообщений. Подождите 10 секунд"
+        )
         return
 
     chat_id = data.get("chat_id")
     content = (data.get("content") or "").strip()
 
     if not chat_id or not content:
-      await self._send_error(
+      await self.connection_manager.send_error(
         user_id, 
         "Требуется указать chat_id и непустое содержимое текста"
       )
+      return
 
     async with get_db_session() as db:
-      # Проверка участия
-      if not await ChatService().is_user_in_chat(user_id, chat_id, db):
-        await self._send_error(user_id, "Вы не являетесь участников чата")
+      if not await ChatService.is_user_in_chat(user_id, chat_id, db):
+        await self.connection_manager.send_error(
+          user_id, 
+          "Вы не являетесь участников чата"
+        )
         return 
       
-      # Сохраняем в БД
-      message_obj = await MessageService().create_message(
+      msg = await MessageService.create_message(
         chat_id=chat_id,
         sender_id=user_id,
         content=content,
         db=db,
       )
-      if not message_obj:
-        await self._send_error(user_id, "Ошибка при сохранении сообщения")
+      if not msg:
+        await self.connection_manager.send_error(
+          user_id, 
+          "Ошибка при сохранении сообщения"
+        )
         return
 
-      # Формируем payload для отправки
       message = {
-        "id": message_obj.id,
+        "id": msg.id,
         "chat_id": chat_id,
         "sender_id": user_id,
         "content": content,
-        "created_at": message_obj.created_at.isoformat(),
+        "created_at": msg.created_at.isoformat(),
       }
 
-    await redis_manager.publish_to_chat(chat_id, message) 
+      await redis_manager.publish_to_chat(chat_id, message) 
 
 
-  async def _handle_read_message(self, user_id: int, data: dict):
-    """Обработка отметки сообщений как прочитанных (батчинг)"""
+  async def handle_read_message(self, user_id: int, data: dict):
+    """
+    Обработка отметки сообщений как прочитанных (батчинг)
+    """
 
     message_ids = data.get("message_ids", [])
     if not message_ids:
@@ -214,7 +273,7 @@ class WebSocketManager:
       logger.debug(f"Прочитано {updated} сообщений для пользователя {user_id}")
 
 
-  async def _handle_edit_message(self, user_id: int, data: dict):
+  async def handle_edit_message(self, user_id: int, data: dict):
     """
     Обработка события 'сообщение отредактировано' участником чата
     """
@@ -234,7 +293,7 @@ class WebSocketManager:
         db=db,
       )
       if success:
-        await self.broadcast_to_chat(
+        await self.delivery_manager.broadcast_to_chat(
           chat_id=chat_id,
           message={
             "type": "message_edited",
@@ -242,26 +301,16 @@ class WebSocketManager:
             "new_content": new_content,
             "edited_at": datetime.utcnow().isoformat(),
           }
-        )
+        ) 
 
 
-  async def send_to_user(self, user_id: int, payload: dict) -> bool:
-    """
-    Отправляет данные конкретному пользователю, если он онлайн
-    Возвращает успех отправки
-    """
+class DeliveryManager():
+  """
+  Доставка сообщений (online/offline)
+  """
 
-    ws = self.connections.get(user_id)
-    if not ws:
-      return False 
-    
-    try:
-      await ws.send_json(payload)
-      return True 
-    except Exception:
-      await self.disconnect(ws)
-      return False 
-    
+  def __init__(self, connection_manager: ConnectionManager):
+    self.connections_manager = connection_manager
 
   async def broadcast_to_chat(self, chat_id: int, message: dict):
     """
@@ -269,83 +318,99 @@ class WebSocketManager:
     Для определения участников используем Redis set - chat_members:{chat_id}
     """
 
-    # Получаем всех участников чата (онлайн + оффлайн)
     members_key = f"chat_members:{chat_id}"
     member_ids = await redis_manager.redis.smembers(members_key)
-
     if not member_ids:
       return 
 
     async with get_db_session() as db:
 
-      for member_str in member_ids:
+      # for raw_id in member_ids:
+      #   try:
+      #     user_id = int(raw_id)
+      #     logger.info(f"Пытаемся отправить user {user_id} (онлайн: {await redis_manager.is_user_online(user_id)})")
+      #   except ValueError:
+      #     continue 
+
+      #   if await redis_manager.is_user_online(user_id):
+      #     await self.connections_manager.send_to_user(user_id, message)
+      #     if "id" in message:
+      #       await MessageService.mark_delivered(
+      #         message_id=message["id"], 
+      #         user_id=user_id, 
+      #         db=db
+      #       )
+      #   else:
+      #     await redis_manager.store_offline_message(user_id, message)
+      for raw_id in member_ids:
         try:
-          member_id = int(member_str)
-          logger.info(f"Пытаемся отправить user {member_id} (онлайн: {await redis_manager.is_user_online(member_id)})")
-
-          if await redis_manager.is_user_online(member_id):
-            await self.send_to_user(member_id, message)
-
-            await MessageService.mark_delivered(message_id=message["id"], user_id=member_id, db=db)
-          else:
-            await redis_manager.store_offline_message(member_id, message)
-
+          user_id = int(raw_id)
         except ValueError:
           continue 
+        
+        sent = await self.connections_manager.send_to_user(user_id, message)
+        
+        if sent:
+          if "id" in message:
+            await MessageService.mark_delivered(
+              message_id=message["id"],
+              user_id=user_id,
+              db=db,
+            )
+        else:
+          await redis_manager.store_offline_message(user_id, message)
 
 
-  async def _authenticate(self, ws: WebSocket) -> int:
-    token = ws.headers.get("authorization")
-    if not token or not token.startswith("Bearer "):
-      await ws.close(code=1008)
-      return None 
-
-    token = token[7:].strip()
-    if not token:
-      await ws.close(code=1008)
-      return None 
-    
-    try:
-      payload = jwt.decode(
-        token,
-        settings.SECRET_KEY,
-        algorithms=[settings.ALGORITHM]
-      )
-      return int(payload["sub"])
-    except (JWTError, ValueError, KeyError):
-      raise WebSocketDisconnect("Невалидный токен")
-    
-  
-  def _find_user_by_ws(self, ws: WebSocket) -> int | None:
-    for uid, active in self.connections.items():
-      if active == ws:
-        return uid 
-    return None 
-  
-
-  async def _send_pending_messages(self, user_id: int, ws: WebSocket):
+  async def send_pending_messages(self, user_id: int, ws: WebSocket):
+    """
+    Рассылает сообщение, когда пользователь подключается
+    """
 
     async with get_db_session() as db:
       messages = await redis_manager.get_and_remove_offline_messages(user_id)
       for msg in messages:
         await ws.send_json(msg)
+        await MessageService.mark_delivered(
+          message_id=msg["id"], 
+          user_id=user_id, 
+          db=db
+        )
 
-        await MessageService.mark_delivered(message_id=msg["id"], user_id=user_id, db=db)
 
+class ChatMembershipSync:
+  """
+  Синхронизация чатов пользователя
+  """
 
-  async def _sync_chat_memberships(self, user_id: int):
+  async def sync_chat_memberships(self, user_id: int):
     async with get_db_session() as db:
       chat_ids = await ChatService().get_user_chat_ids(user_id, db)
       for cid in chat_ids:
         await redis_manager.add_user_to_chat(user_id, cid)
 
-  
-  async def _send_error(self, user_id: int, text: str):
-    await self.send_to_user(user_id, {
-      "type": "error",
-      "message": text,
-      "timestamp": datetime.utcnow().isoformat(),
-    })
 
-  
+class WebSocketManager:
+  """
+  Composition Root
+  """
+
+  def __init__(self):
+    self.auth_handler = AuthHandler()
+    self.membership_sync = ChatMembershipSync()
+
+    self.connection_manager = ConnectionManager(
+      auth_handler=self.auth_handler,
+      membership_sync=self.membership_sync,
+    )
+
+    self.delivery_manager = DeliveryManager(
+      connection_manager=self.connection_manager
+    )
+
+    self.message_handler = MessageHandler(
+      connection_manager=self.connection_manager,
+      delivery_manager=self.delivery_manager
+    )
+
+
 websocket_manager = WebSocketManager()

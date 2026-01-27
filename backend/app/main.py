@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
   try:
     asyncio.create_task(
       redis_manager.subscribe_to_chats(
-        lambda chat_id, msg: websocket_manager.broadcast_to_chat(chat_id, msg)
+        lambda chat_id, msg: websocket_manager.delivery_manager.broadcast_to_chat(chat_id, msg)
       )
     )
     logger.info(f"Redis Pub/Sub слушатель запущен")

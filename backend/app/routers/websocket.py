@@ -19,14 +19,15 @@ async def websocket_endpoint(
   try:     
     await websocket.accept()
 
-    connected = await websocket_manager.connect(websocket)
-    if not connected:
+    user_id = await websocket_manager.connection_manager.connect(websocket)
+    if not user_id:
       await websocket.close(
         code=status.WS_1011_INTERNAL_ERROR
       )
       return 
     
-    await websocket_manager.receive_loop(websocket)
+    await websocket_manager.delivery_manager.send_pending_messages(user_id, websocket)
+    await websocket_manager.message_handler.receive_loop(websocket)
 
   except Exception as e:
     logger.error(f"WebSocket ошибка: {e}", exc_info=True)
@@ -37,4 +38,4 @@ async def websocket_endpoint(
     except:
       pass
   finally:
-    await websocket_manager.disconnect(websocket)
+    await websocket_manager.connection_manager.disconnect(websocket)
