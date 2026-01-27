@@ -21,12 +21,13 @@ class User(Base):
   # Связи
   chats = relationship(
     "ChatRoom",
-    secondary="participants",     # Ссылка на таблицу participants
-    back_populates="participants",    # Обратная ссылка
+    secondary="participants",     
+    back_populates="participants",    
     lazy="selectin",
   )
 
   sent_messages = relationship("Message", back_populates="sender")
   read_messages= relationship("MessageRead", back_populates="user")
   edited_messages = relationship("MessageEdit", back_populates="user")
+  message_deliveries = relationship("MessageDelivery", back_populates="user")
 

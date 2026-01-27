@@ -4,7 +4,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select, update, func
 
-from app.models.message import Message, MessageEdit, MessageRead
+from app.models.message import Message, MessageEdit, MessageRead, MessageDelivery
 from app.models.participant import participants
 from app.services.chat_service import ChatService
 import logging
@@ -31,21 +31,35 @@ class MessageService:
     """
 
     try:
-      # Создаем объект сообщения
       message = Message(
         chat_id=chat_id,
         sender_id=sender_id,
         content=content,
       )
 
-      db.add(message)             # Добавляем в сессию
-      await db.commit()           # Фиксируем изменения в БД
-      await db.refresh(message)   # Обновляем объект из БД
+      db.add(message)             
+      await db.flush()             
+
+      participants = await ChatService().get_chat_members(chat_id, db)
+
+      for participant_id in participants:
+        if participant_id == sender_id:
+          continue 
+
+        delivery = MessageDelivery(
+          message_id=message.id,
+          user_id=participant_id,
+          delivered_at=None,
+        )
+        db.add(delivery)
+
+      await db.commit()
+      await db.refresh(message)
 
       return message 
     
     except Exception as e:
-      await db.rollback()         # Откатываем транзакцию при любой ошибке
+      await db.rollback()     
       logger.error(f"[Create Message] Ошибка создания сообщения: {e}")
       return None 
     
@@ -101,25 +115,25 @@ class MessageService:
   @staticmethod
   async def mark_delivered(
     message_id: int,
+    user_id: int,
     db: AsyncSession,
   ) -> bool:
     """Отмечает сообщение как доставленное"""
-    
-    stmt = (
-      update(Message)
+
+    result = await db.execute(
+      update(MessageDelivery)
       .where(
-        Message.id == message_id,
-        Message.delivered_at.is_(None),
+        MessageDelivery.message_id == message_id,
+        MessageDelivery.user_id == user_id,
+        MessageDelivery.delivered_at.is_(None)
       )
       .values(delivered_at=func.now())
-      .returning(Message.id)
-    ) 
-
-    result = await db.execute(stmt)
+    )
+  
     await db.commit()
 
-    return bool(result.scalar_one_or_none())
-  
+    return result.rowcount > 0
+    
 
   @staticmethod 
   async def mark_messages_as_read(
@@ -168,8 +182,9 @@ class MessageService:
       .where(
         Message.id == message_id,
         Message.sender_id == user_id,
+        Message.is_deleted == False,
       )
-      .join(MessageEdit)
+      .values(is_deleted=True)
     )
 
     if result.rowcount == 0:

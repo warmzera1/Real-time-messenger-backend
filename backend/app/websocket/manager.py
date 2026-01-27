@@ -191,14 +191,7 @@ class WebSocketManager:
         "created_at": message_obj.created_at.isoformat(),
       }
 
-    # Публием в Redis -> все инстансы получат
     await redis_manager.publish_to_chat(chat_id, message) 
-
-    # # Показываем отправителю сразу
-    # await self.send_to_user(user_id, {
-    #   "type": "message",
-    #   "message": message,
-    # })
 
 
   async def _handle_read_message(self, user_id: int, data: dict):
@@ -223,7 +216,7 @@ class WebSocketManager:
 
   async def _handle_edit_message(self, user_id: int, data: dict):
     """
-    Обработка события 'сообщение отредактировано' участникам чата
+    Обработка события 'сообщение отредактировано' участником чата
     """
 
     message_id = data.get("message_id")
@@ -282,8 +275,6 @@ class WebSocketManager:
 
     if not member_ids:
       return 
-    
-    # sender_id = message.get("sender_id")
 
     async with get_db_session() as db:
 
@@ -291,22 +282,16 @@ class WebSocketManager:
         try:
           member_id = int(member_str)
           logger.info(f"Пытаемся отправить user {member_id} (онлайн: {await redis_manager.is_user_online(member_id)})")
-          # if member_id == sender_id:
-          #   continue        # Отправителю уже отправили ранее
 
-          # Проверяем, онлайн ли участник
           if await redis_manager.is_user_online(member_id):
             await self.send_to_user(member_id, message)
 
-            # await MessageService.mark_delivered(message["id"], db)
+            await MessageService.mark_delivered(message_id=message["id"], user_id=member_id, db=db)
           else:
             await redis_manager.store_offline_message(member_id, message)
 
-
         except ValueError:
           continue 
-
-    # logger.info(f"Broadcast chat {chat_id}: sender {sender_id}, members {member_ids}")
 
 
   async def _authenticate(self, ws: WebSocket) -> int:
@@ -345,7 +330,7 @@ class WebSocketManager:
       for msg in messages:
         await ws.send_json(msg)
 
-        # await MessageService.mark_delivered(msg["id"], db)
+        await MessageService.mark_delivered(message_id=msg["id"], user_id=user_id, db=db)
 
 
   async def _sync_chat_memberships(self, user_id: int):
