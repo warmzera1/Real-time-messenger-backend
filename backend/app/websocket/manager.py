@@ -325,23 +325,6 @@ class DeliveryManager():
 
     async with get_db_session() as db:
 
-      # for raw_id in member_ids:
-      #   try:
-      #     user_id = int(raw_id)
-      #     logger.info(f"Пытаемся отправить user {user_id} (онлайн: {await redis_manager.is_user_online(user_id)})")
-      #   except ValueError:
-      #     continue 
-
-      #   if await redis_manager.is_user_online(user_id):
-      #     await self.connections_manager.send_to_user(user_id, message)
-      #     if "id" in message:
-      #       await MessageService.mark_delivered(
-      #         message_id=message["id"], 
-      #         user_id=user_id, 
-      #         db=db
-      #       )
-      #   else:
-      #     await redis_manager.store_offline_message(user_id, message)
       for raw_id in member_ids:
         try:
           user_id = int(raw_id)
