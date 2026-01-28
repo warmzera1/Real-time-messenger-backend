@@ -154,7 +154,7 @@ class MessageService:
       .where(
         Message.id.in_(message_ids),
         Message.sender_id != reader_id,
-        Message.read_at.is_(None),
+        # Message.read_at.is_(None),
         Message.chat_id.in_(
           select(participants.c.chat_id)
           .where(participants.c.user_id == reader_id)
