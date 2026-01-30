@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class ChatService:
-  """Сервис для работы с чатами"""
 
   @staticmethod
   async def get_chat_members(chat_id: int, db: AsyncSession) -> list[int]:

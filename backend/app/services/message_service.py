@@ -15,9 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 class MessageService:
-  """
-  Сервис для работы с сообщениями
-  """
 
   @staticmethod 
   async def create_message(

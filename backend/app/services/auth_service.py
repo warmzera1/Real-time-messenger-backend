@@ -57,7 +57,7 @@ class AuthService:
       token_type="bearer",
     )
 
-
+  @staticmethod 
   async def login(form: LoginForm, db: AsyncSession) -> TokenResponse:
     """Авторизация пользователя"""
 
@@ -86,7 +86,7 @@ class AuthService:
     token_type="bearer",
     )
 
-
+  @staticmethod 
   async def refresh_token(data: RefreshTokenRequest, db: AsyncSession) -> TokenResponse:
     """Обновление access-токена по refresh-токену"""
 
@@ -136,7 +136,7 @@ class AuthService:
       token_type="bearer",
     )
   
-
+  @staticmethod 
   async def logout(refresh_token: str, current_user_id: int) -> None:
     """Выход пользователя из аккаунта"""
 
@@ -147,7 +147,7 @@ class AuthService:
         algorithms=[settings.ALGORITHM],
       )
     except JWTError:
-      raise ValueError("INVALID_TOKENн")
+      raise ValueError("INVALID_TOKEN")
 
     if payload.get("type") != "refresh":
       raise ValueError("INVALID_TOKEN")
