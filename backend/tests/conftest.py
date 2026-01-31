@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.base import Base 
 from app.models.user import User 
 from app.schemas.user import UserCreate
+from app.core.security import create_access_token
 
 
 @pytest.fixture(scope="session")
@@ -65,45 +66,12 @@ async def async_client():
 
 
 @pytest.fixture
-async def test_user(async_session):
-  user = User(
-    username="testuser",
-    email="test@mail.com",
-    hashed_password="password123"
-  )
-  async_session.add(user)
-  await async_session.commit()
-  await async_session.refresh(user)
-
-  return user
-
+def current_user():
+    return User(id=1, username="testuser", email="test@test.com")
 
 
 @pytest.fixture
-async def auth_token(async_client, test_user):
+def auth_headers():
+    return {"Authorization": "Bearer test-token"}
 
-  response = await async_client.post(
-    "/auth/login",
-    json={
-      "username": test_user.username,
-      "password": "password123",
-    }
-  )
-
-  assert response.status_code == 200 
-  
-  data = response.json()
-  access_token = data.get["access_token"]
-  return access_token
-
-
-@pytest.fixture
-def auth_headers(auth_token):
-  return {"Authorization": f"Bearer {auth_token}"}
-
-@pytest.fixture
-def logout_payload():
-    return {
-        "refresh_token": "test-refresh-token-123"
-    }
 

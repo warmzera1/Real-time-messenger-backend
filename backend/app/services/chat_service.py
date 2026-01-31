@@ -69,7 +69,7 @@ class ChatService:
 
     try:
       # Поиск существующего чата
-      existing_chat = await ChatService._find_private_chat(user1_id, user2_id, db)
+      existing_chat = await ChatService.find_private_chat(user1_id, user2_id, db)
       if existing_chat:
         return existing_chat
       
@@ -84,7 +84,7 @@ class ChatService:
 
 
   @staticmethod 
-  async def _find_private_chat(
+  async def find_private_chat(
     user1_id: int,
     user2_id: int,
     db: AsyncSession,

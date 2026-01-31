@@ -171,33 +171,6 @@ async def test_refresh_invalid_token(async_client, mocker, side_effect, expected
   assert response1.status_code == expected_status
 
 
-# @pytest.mark.asyncio
-# async def test_logout_success(async_client, mocker):
-#   current_user = User(id=1)
-#   mocker.patch(
-#     "app.routers.auth.AuthService.logout",
-#     return_value=current_user
-#   )
-#   mock_logout = mocker.patch(
-#     "app.routers.auth.AuthService.logout",
-#     new_callable=AsyncMock,
-#     return_value=None 
-#   )
-
-#   response = await async_client.post(
-#     "/auth/logout",
-#     json={
-#       "refresh_token": "valid-refresh-token"
-#     },
-#     headers={
-#         "Authorization": "Bearer mock-access-token"
-#     }
-#   )
-
-#   assert response.status_code == 204
-#   mock_logout.assert_called_once_with(
-#     refresh_token="valid-refresh-token", current_user=1)
-
 @pytest.mark.asyncio
 async def test_logout_success(async_client, mocker):
     app.dependency_overrides[get_current_user] = lambda: User(id=1)

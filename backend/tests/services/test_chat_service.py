@@ -89,7 +89,7 @@ async def test_find_or_create_private_chat_create_new(async_session):
 
 
 @pytest.mark.asyncio
-async def test__find_private_chat(async_session):
+async def test_find_private_chat(async_session):
   chat1 = ChatRoom(is_group=False)
   chat2 = ChatRoom(is_group=True)
   async_session.add_all([chat1, chat2])
@@ -104,13 +104,13 @@ async def test__find_private_chat(async_session):
   )
   await async_session.commit()
 
-  result = await ChatService._find_private_chat(1, 2, async_session)
+  result = await ChatService.find_private_chat(1, 2, async_session)
   assert result.id == chat1.id 
 
 
 @pytest.mark.asyncio
-async def test__create_private_chat(async_session):
-  chat = await ChatService._create_private_chat(5, 6, async_session)
+async def test_create_private_chat(async_session):
+  chat = await ChatService.create_private_chat(5, 6, async_session)
   assert chat is not None 
   assert chat.is_group is False 
 
