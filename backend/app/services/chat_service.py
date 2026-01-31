@@ -74,9 +74,7 @@ class ChatService:
         return existing_chat
       
       # Создание нового чата
-      chat = await ChatService._create_private_chat(user1_id, user2_id, db)
-      await redis_manager.add_user_to_chat(user1_id, chat.id)
-      await redis_manager.add_user_to_chat(user2_id, chat.id)
+      chat = await ChatService.create_private_chat(user1_id, user2_id, db)
 
       return chat
     
@@ -109,7 +107,7 @@ class ChatService:
   
 
   @staticmethod
-  async def _create_private_chat(
+  async def create_private_chat(
     user1_id: int,
     user2_id: int,
     db: AsyncSession,
@@ -134,6 +132,10 @@ class ChatService:
 
       await db.commit()
       await db.refresh(chat)
+
+      await redis_manager.add_user_to_chat(user1_id, chat.id)
+      await redis_manager.add_user_to_chat(user2_id, chat.id)
+
       return chat 
     
     except Exception as e:

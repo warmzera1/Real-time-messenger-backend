@@ -137,7 +137,7 @@ class AuthService:
     )
   
   @staticmethod 
-  async def logout(refresh_token: str, current_user_id: int) -> None:
+  async def logout(refresh_token: str, current_user: int) -> None:
     """Выход пользователя из аккаунта"""
 
     try:
@@ -152,7 +152,7 @@ class AuthService:
     if payload.get("type") != "refresh":
       raise ValueError("INVALID_TOKEN")
     
-    if str(current_user_id) != payload.get("sub"):
+    if str(current_user) != payload.get("sub"):
       raise ValueError("FORBIDDEN")
     
     jti = payload.get("jti")

@@ -22,38 +22,23 @@ async def create_chat(
   Создание личного чата
   Возвращает существующий чат, если он УЖЕ есть
   """
-
-  # Валидация
-  if chat_data.second_user_id == current_user.id:
-    raise HTTPException(
-      status_code=status.HTTP_400_BAD_REQUEST,
-      detail="Нельзя создать чат с самим собой",
-    )
   
-  # Проверка существования пользователя
-  stmt = select(User).where(User.id == chat_data.second_user_id)
-  result = await db.execute(stmt)
-  if not result.scalar_one_or_none():
-    raise HTTPException(
-      status_code=status.HTTP_404_NOT_FOUND,
-      detail="Пользователь не найден",
+  try:
+    return await ChatService.find_or_create_private_chat(
+      user1_id=current_user.id,
+      user2_id=chat_data.second_user_id,
+      db=db,
     )
-  
-  # Поиск или создание чата через сервис
-  chat = await ChatService.find_or_create_private_chat(
-    user1_id=current_user.id,
-    user2_id=chat_data.second_user_id,
-    db=db,
-  )
-
-
-  if not chat:
+  except ValueError as e:
+    mapping = {
+      "SELF_CHAT": 400,
+      "USER_NOT_FOUND": 404,
+      "CHAT_CREATE_FAILED": 500,
+    }
     raise HTTPException(
-      status_code=status.HTTP_500_INTERNAl_SERVER_ERROR,
-      detail="Не удалось создать чат"
+      status_code=mapping.get(str(e), 500),
+      detail=str(e)
     )
-  
-  return chat
 
 
 @router.get("/", response_model=List[ChatRoomIdResponse])
