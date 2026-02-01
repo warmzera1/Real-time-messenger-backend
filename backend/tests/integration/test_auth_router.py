@@ -1,9 +1,7 @@
 import pytest 
 from unittest.mock import AsyncMock, patch
 
-from app.services.auth_service import AuthService
 from app.models.user import User 
-from app.schemas.user import UserCreate, LoginForm
 from app.dependencies.auth import get_current_user 
 from app.main import app
 

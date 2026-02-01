@@ -2,10 +2,6 @@ import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
-from app.services.chat_service import ChatService
-from app.models.message import Message
-from app.schemas.chat import ChatRoomCreate, ChatRoomBase
-from app.schemas.user import UserResponse
 from app.dependencies.auth import get_current_user 
 from app.main import app
 
