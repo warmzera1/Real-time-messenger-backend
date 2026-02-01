@@ -16,19 +16,17 @@ from app.schemas.user import UserCreate
 from app.core.security import create_access_token
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 async def async_engine():
   engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
     future=True,
     echo=False,
   )
-
   async with engine.begin() as conn:
     await conn.run_sync(Base.metadata.create_all) 
 
   yield engine 
-
   await engine.dispose()
 
 
@@ -47,12 +45,9 @@ async def async_session(async_engine):
 
 @pytest.fixture(autouse=True)
 def override_get_db(async_session):
-  async def _get_db_override():
-    yield async_session 
-
-  app.dependency_overrides[get_db] = _get_db_override 
+  app.dependency_overrides[get_db] = lambda: async_session
   yield 
-  app.dependency_overrides.clear()
+  app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture 

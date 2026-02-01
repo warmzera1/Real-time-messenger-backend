@@ -67,6 +67,11 @@ async def test_create_message_success(
 @pytest.mark.asyncio
 async def test_get_chat_messages(async_session):
   messages = [] 
+
+  await async_session.execute(
+    participants.insert().values(chat_id=1, user_id=1)
+  )
+
   for i in range(3):
     msg = await MessageService.create_message(
       chat_id=1, 
@@ -78,7 +83,7 @@ async def test_get_chat_messages(async_session):
     messages.append(msg)
   await async_session.commit()
 
-  result = await MessageService.get_chat_messages(chat_id=1, db=async_session)
+  result = await MessageService.get_chat_messages(chat_id=1, user_id=1, db=async_session)
   assert len(result) == 3
   assert result[0].content == "msg 0"
   assert result[1].content == "msg 1"
@@ -171,6 +176,7 @@ async def test_delete_message(async_session):
   msg = Message(chat_id=1, sender_id=1, content="to delete", is_deleted=False)
   async_session.add(msg)
   await async_session.commit() 
+  await async_session.refresh(msg)
 
   success = await MessageService.delete_message(msg.id, 1, async_session)
   assert success is True 
@@ -183,8 +189,18 @@ async def test_delete_message(async_session):
   updated = result.scalar_one() 
   assert updated.is_deleted is True 
 
-  fail = await MessageService.delete_message(msg.id, 2, async_session)
-  assert fail is False 
+  with pytest.raises(ValueError) as exc:
+    await MessageService.delete_message(msg.id, 1, async_session)
+  assert str(exc.value) == "MESSAGE_NOT_FOUND"
+
+  msg_new = Message(chat_id=1, sender_id=2, content="other", is_deleted=False)
+  async_session.add(msg_new)
+  await async_session.commit()
+  await async_session.refresh(msg_new)
+
+  with pytest.raises(ValueError) as exc:
+    await MessageService.delete_message(msg_new.id, 1, async_session)
+  assert str(exc.value) == "FORBIDDEN"
 
 
 @pytest.mark.asyncio
@@ -195,6 +211,10 @@ async def test_edit_message(async_session):
 
   success = await MessageService.edit_message(msg.id, 1, "new content", async_session)
   assert success is True 
+
+  with pytest.raises(ValueError) as exc:
+    await MessageService.edit_message(555, 1, "new_content", async_session)
+  assert str(exc.value) == "MESSAGE_NOT_FOUND"
 
   result = await async_session.execute(
     select(Message).where(
@@ -214,5 +234,8 @@ async def test_edit_message(async_session):
   assert edit_record.old_content == "old content"
   assert edit_record.new_content == "new content"
 
-  fail = await MessageService.edit_message(msg.id, 2, "fail edit", async_session)
-  assert fail is False
+  with pytest.raises(ValueError) as exc:
+    await MessageService.edit_message(msg.id, 2, "fail edit", async_session)
+  assert str(exc.value) == "FORBIDDEN"
+
+

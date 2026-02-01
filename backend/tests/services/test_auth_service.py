@@ -168,6 +168,6 @@ async def test_logout_success(mocker):
     new_callable=AsyncMock
   )
 
-  await AuthService.logout("token", current_user_id=1)
+  await AuthService.logout("token", current_user=1)
 
   revoke.assert_awaited_once()

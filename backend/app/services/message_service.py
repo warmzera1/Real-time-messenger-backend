@@ -231,6 +231,7 @@ class MessageService:
     
     message.is_deleted = True
     await db.commit()
+    return True
   
 
   @staticmethod 

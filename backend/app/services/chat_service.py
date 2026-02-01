@@ -117,12 +117,10 @@ class ChatService:
     """
 
     try:
-      # Создаем чат
       chat = ChatRoom(name=None, is_group=False)
       db.add(chat)
-      await db.flush()      # Получаем ID
+      await db.flush()    
 
-      # Добавляем участников
       await db.execute(
         participants.insert().values([
           {"user_id": user1_id, "chat_id": chat.id},

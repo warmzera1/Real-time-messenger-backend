@@ -109,7 +109,12 @@ async def test_find_private_chat(async_session):
 
 
 @pytest.mark.asyncio
-async def test_create_private_chat(async_session):
+async def test_create_private_chat(async_session, mocker):
+  mocker.patch(
+    "app.services.chat_service.redis_manager.add_user_to_chat",
+    new_callable=AsyncMock,
+  )
+
   chat = await ChatService.create_private_chat(5, 6, async_session)
   assert chat is not None 
   assert chat.is_group is False 
