@@ -20,46 +20,22 @@ async def send_message(
 ):
   """Отправка сообщения"""
 
-  # 1. Проверка участника чата
-  is_member = await ChatService.is_user_in_chat(
-    user_id=current_user.id,
-    chat_id=request.chat_id,
-    db=db
-  )
-
-  if not is_member:
-    raise HTTPException(
-      status_code=status.HTTP_403_FORBIDDEN,
-      detail="Вы не являетесь участником чата"
+  try:
+    return await MessageService.send_message(
+      chat_id=request.chat_id,
+      sender_id=current_user.id,
+      content=request.content,
+      db=db
     )
-  
-  # Создание сообщения в БД
-  message = await MessageService.create_message(
-    chat_id=request.chat_id,
-    sender_id=current_user.id, 
-    content=request.content, 
-    db=db
-  )
-
-  if not message:
-    raise HTTPException(
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-      detail="Ошибка при создании сообщения")
-  
-  # Публикация в Redis для WebSocket рассылки
-  await redis_manager.publish_chat_message(
-    chat_id=request.chat_id,
-    message_data={
-      "id": message.id,
-      "chat_id": message.chat_id,
-      "sender_id": message.sender_id,
-      "content": message.content,
-      "created_at": message.created_at.isoformat(),
-      "delivered_at": message.delivered_at.isoformat() if message.delivered_at else None,
+  except ValueError as e:
+    mapping = {
+      "FORBIDDEN": 403,
+      "MESSAGE_CREATE_FAILED": 500,
     }
-  )
-
-  return message
+    raise HTTPException(
+      status_code=mapping.get(str(e), 500),
+      detail=str(e)
+    )
 
 
 @router.get("/", response_model=List[MessageResponse])
@@ -72,27 +48,20 @@ async def get_messages(
 ):
   """Получение сообщений"""
 
-  # Проверка участника 
-  is_member = await ChatService.is_user_in_chat(
-    user_id=current_user.id,
-    chat_id=chat_id,
-    db=db,
-  )
-  if not is_member:
-    raise HTTPException(
-      status_code=status.HTTP_403_FORBIDDEN,
-      detail="Вы не являетесь участником чата",
+  try:  
+    return await MessageService.get_chat_messages(
+      chat_id=chat_id,
+      user_id=current_user.id,
+      limit=limit,
+      offset=offset,
+      db=db,
     )
-  
-  # Получение сообщений через сервис
-  messages = await MessageService.get_chat_messages(
-    chat_id=chat_id,
-    limit=limit,
-    offset=offset,
-    db=db,
-  )
-
-  return messages
+  except ValueError as e:
+    if str(e) == "FORBIDDEN":
+      raise HTTPException(
+        status_code=403,
+        detail="Вы не являетесь участником чата"
+      )
 
 
 @router.delete("/{message_id}/delete", status_code=204)
@@ -103,15 +72,25 @@ async def delete_message(
 ):
   """Удаление сообщения"""
 
-  success = await MessageService.delete_message(
-    message_id=message_id,
-    user_id=current_user.id,
-    db=db,
-  )
-  if not success:
-    raise HTTPException(404, "Сообщение не найден или не Ваше")
-  
+  try: 
+    await MessageService.delete_message(
+      message_id=message_id,
+      user_id=current_user.id,
+      db=db,
+    )
+  except ValueError as e:
+    if str(e) == "MESSAGE_NOT_FOUND":
+      raise HTTPException(
+        status_code=404,
+        detail="Сообщение не найдено"
+      )
+    if str(e) == "FORBIDDEN":
+      raise HTTPException(
+        status_code=403,
+        detail="Сообщение не принадлежит Вам"
+      )
 
+  
 @router.patch("/{message_id}/edit")
 async def edit_message(
   request: MessageEdit,
@@ -121,14 +100,25 @@ async def edit_message(
 ):
   """Изменение сообщения"""
 
-  success = await MessageService.edit_message(
-    message_id=message_id,
-    user_id=current_user.id,
-    new_content=request.content,
-    db=db,
-  )
-  if not success:
-    raise HTTPException(404, "Сообщение не найдено или не Ваше")
+  try: 
+    await MessageService.edit_message(
+      message_id=message_id,
+      user_id=current_user.id,
+      new_content=request.content,
+      db=db,
+    )
+  except ValueError as e:
+    if str(e) == "MESSAGE_NOT_FOUND":
+      raise HTTPException(
+        status_code=404,
+        detail="Сообщение не найдено"
+      )
+    if str(e) == "FORBIDDEN":
+      raise HTTPException(
+        status_code=403,
+        detail="Сообщение не принадлежит Вам"
+      )
+
   
 
 

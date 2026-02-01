@@ -7,6 +7,7 @@ from sqlalchemy import select, update, func
 from app.models.message import Message, MessageEdit, MessageRead, MessageDelivery
 from app.models.participant import participants
 from app.services.chat_service import ChatService
+from app.redis.manager import redis_manager
 import logging
 
 
@@ -60,10 +61,49 @@ class MessageService:
       logger.error(f"[Create Message] Ошибка создания сообщения: {e}")
       return None 
     
+  @staticmethod
+  async def send_message(
+    chat_id: int,
+    sender_id: int,
+    content: str,
+    db: AsyncSession,
+  ):
+    
+    await MessageService.ensure_user_in_chat(
+      user_id=sender_id,
+      chat_id=chat_id,
+      db=db,
+    )
+  
+    message = await MessageService.create_message(
+      chat_id=chat_id,
+      sender_id=sender_id, 
+      content=content, 
+      db=db
+    )
+
+    if not message:
+      raise ValueError("MESSAGE_CREATE_FAILED")
+  
+    # Публикация в Redis для WebSocket рассылки
+    await redis_manager.publish_to_chat(
+      chat_id=chat_id,
+      message={
+        "id": message.id,
+        "chat_id": message.chat_id,
+        "sender_id": message.sender_id,
+        "content": message.content,
+        "created_at": message.created_at.isoformat(),
+      }
+    )
+
+    return message
+    
 
   @staticmethod
   async def get_chat_messages(
     chat_id: int,
+    user_id: int,
     db: AsyncSession,
     limit: int = 50,
     offset: int = 0,
@@ -72,21 +112,22 @@ class MessageService:
     Возвращает последнее сообщение чата (с пагинацией)
     """
 
-    try:
-      stmt = (
-        select(Message)
-        .where(Message.chat_id == chat_id)
-        .order_by(Message.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-      )
+    await MessageService.ensure_user_in_chat(
+      user_id=user_id,
+      chat_id=chat_id,
+      db=db,
+    )
 
-      result = await db.execute(stmt)
-      return result.scalars().all()       # Возвращаем список объектов Message
-    
-    except Exception as e:
-      logger.error(f"[Get Chat Messages] Ошибка получения сообщений чата {chat_id}: {e}")
-      return []
+    stmt = (
+      select(Message)
+      .where(Message.chat_id == chat_id)
+      .order_by(Message.created_at.desc())
+      .limit(limit)
+      .offset(offset)
+    )
+
+    result = await db.execute(stmt)
+    return result.scalars().all()    
     
 
   @staticmethod
@@ -174,22 +215,22 @@ class MessageService:
   ):
     """Удаление сообщения конкретного пользователя"""
 
-    result = await db.execute(
-      update(Message)
-      .where(
-        Message.id == message_id,
-        Message.sender_id == user_id,
-        Message.is_deleted == False,
-      )
-      .values(is_deleted=True)
+    stmt = select(Message).where(
+      Message.id == message_id,
+      Message.is_deleted == False,
     )
 
-    if result.rowcount == 0:
-      await db.rollback()
-      return False
+    result = await db.execute(stmt)
+    message = result.scalar_one_or_none()
 
+    if not message:
+      raise ValueError("MESSAGE_NOT_FOUND")
+    
+    if message.sender_id != user_id:
+      raise ValueError("FORBIDDEN")
+    
+    message.is_deleted = True
     await db.commit()
-    return True
   
 
   @staticmethod 
@@ -202,8 +243,11 @@ class MessageService:
     """Редактирование сообщения конкретного пользователя"""
 
     msg = await db.get(Message, message_id)
-    if not msg or msg.sender_id != user_id or msg.is_deleted:
-      return False 
+    if not msg or msg.is_deleted:
+      raise ValueError("MESSAGE_NOT_FOUND")
+    
+    if msg.sender_id != user_id:
+      raise ValueError("FORBIDDEN")
     
     old_content = msg.content 
 
@@ -221,6 +265,24 @@ class MessageService:
 
     await db.commit()
     return True 
+  
+
+  @staticmethod
+  async def ensure_user_in_chat(
+    user_id: int,
+    chat_id: int,
+    db: AsyncSession,
+  ) -> None:
+    """Состоит ли пользователь в чате"""
+
+    is_member = await ChatService.is_user_in_chat(
+      user_id=user_id,
+      chat_id=chat_id,
+      db=db,
+    )
+
+    if not is_member:
+      raise ValueError("FORBIDDEN")
       
 
   
