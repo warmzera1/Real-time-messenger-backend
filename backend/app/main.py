@@ -36,23 +36,21 @@ async def lifespan(app: FastAPI):
 
   # 2. Подключение Redis
   try:
-    connected = await redis_manager.connect()
-    if connected:
-      logger.info("Redis успешно подключился")
-
-      # Устанавливаем связь между менеджерами
-      redis_manager.set_websocket_manager(websocket_manager)
-      logger.info("WebSocketManager связан с RedisManager")
-
-      # Запускаем Redis слушатель
-      await redis_manager.start_listening()
-      logger.info("Redis Pub/Sub listener запущен")
-    else:
-      logger.warning("Redis недоступен, запуск без кэша")
-  
+    await redis_manager.redis.ping()
+    logger.info(f"Redis подключен")
   except Exception as e:
-    logger.warning(f"Redis ошибка подключения (продолжать без): {e}")
+    logger.warning(f"Redis ошибка подключения: {e}")
 
+  # Запуск Pub/Sub слушателя
+  try:
+    asyncio.create_task(
+      redis_manager.subscribe_to_chats(
+        lambda chat_id, msg: websocket_manager.delivery_manager.broadcast_to_chat(chat_id, msg)
+      )
+    )
+    logger.info(f"Redis Pub/Sub слушатель запущен")
+  except Exception as e:
+    logger.error(f"Ошибка запуска Pub/Sub: {e}")
 
   logger.info("Приложение запущено успешно")
 
@@ -105,9 +103,10 @@ async def health_check():
   """Проверка состояния сервиса"""
   import datetime 
 
-  redis_status = "неизвестный"
+  redis_status = "отключен"
   try:
-    redis_status = "подключен" if await redis_manager.connect() else "отключен"
+    await redis_manager.redis.ping()
+    redis_status = "подключен"
   except:
     redis_status = "ошибка"
 

@@ -1,7 +1,6 @@
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, status 
+from fastapi import APIRouter, WebSocket, status 
 
-from app.dependencies.websocket_auth import get_current_user_ws
 from app.websocket.manager import websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -12,47 +11,25 @@ router = APIRouter(prefix="/ws", tags=["websocket"])
 @router.websocket("")
 async def websocket_endpoint(
   websocket: WebSocket,
-  token: str = Query(..., description="JWT token"),
 ):
   """
-  WebSocket endpoint для обмена сообщениями в реальном времени
-  Подключение: ws://localhost:8000/ws?token=<JWT>
+  Подключение: ws://localhost:8000/ws
   """
 
-  user = None 
-  try:
+  try:     
     await websocket.accept()
 
-    # 1. Аутентификация
-    user = await get_current_user_ws(token)
-    if not user:
-      await websocket.close(
-        code=status.WS_1008_POLICY_VIOLATION
-      )
-      return 
-
-    logger.info(f"Аутентификация WebSocket прошла успешно для пользователя {user['id']}")
-
-    # 2. Подключение к менеджеру
-    connected = await websocket_manager.connect(websocket)
-    if not connected:
+    user_id = await websocket_manager.connection_manager.connect(websocket)
+    if not user_id:
       await websocket.close(
         code=status.WS_1011_INTERNAL_ERROR
       )
       return 
     
-    # 3. Основной цикл обработки сообщений
-    await websocket_manager.handle_incoming_message(websocket)
-
-  except WebSocketDisconnect as e:
-    # Нормальное отключение клиента
-    if user:
-      logger.info(f"Пользователь {user.get('id')} отключился успешно")
-    else:
-      logger.info(f"Неподтвержденный пользователь отключился")
+    await websocket_manager.delivery_manager.send_pending_messages(user_id, websocket)
+    await websocket_manager.message_handler.receive_loop(websocket)
 
   except Exception as e:
-    # Неожиданная ошибка
     logger.error(f"WebSocket ошибка: {e}", exc_info=True)
     try:
       await websocket.close(
@@ -61,6 +38,4 @@ async def websocket_endpoint(
     except:
       pass
   finally:
-    # Гарантированное отключение
-    if user:
-      await websocket_manager.disconnect(websocket)
+    await websocket_manager.connection_manager.disconnect(websocket)

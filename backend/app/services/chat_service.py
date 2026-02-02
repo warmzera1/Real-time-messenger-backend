@@ -7,12 +7,12 @@ from app.models.user import User
 from app.models.chat import ChatRoom
 from app.models.message import Message
 from app.models.participant import participants 
+from app.redis.manager import redis_manager
 
 logger = logging.getLogger(__name__)
 
 
 class ChatService:
-  """Сервис для работы с чатами"""
 
   @staticmethod
   async def get_chat_members(chat_id: int, db: AsyncSession) -> list[int]:
@@ -69,12 +69,14 @@ class ChatService:
 
     try:
       # Поиск существующего чата
-      existing_chat = await ChatService._find_private_chat(user1_id, user2_id, db)
+      existing_chat = await ChatService.find_private_chat(user1_id, user2_id, db)
       if existing_chat:
         return existing_chat
       
       # Создание нового чата
-      return await ChatService._create_private_chat(user1_id, user2_id, db)
+      chat = await ChatService.create_private_chat(user1_id, user2_id, db)
+
+      return chat
     
     except Exception as e:
       logger.error(f"Ошибка создания чата: {e}")
@@ -82,7 +84,7 @@ class ChatService:
 
 
   @staticmethod 
-  async def _find_private_chat(
+  async def find_private_chat(
     user1_id: int,
     user2_id: int,
     db: AsyncSession,
@@ -105,7 +107,7 @@ class ChatService:
   
 
   @staticmethod
-  async def _create_private_chat(
+  async def create_private_chat(
     user1_id: int,
     user2_id: int,
     db: AsyncSession,
@@ -115,12 +117,10 @@ class ChatService:
     """
 
     try:
-      # Создаем чат
       chat = ChatRoom(name=None, is_group=False)
       db.add(chat)
-      await db.flush()      # Получаем ID
+      await db.flush()    
 
-      # Добавляем участников
       await db.execute(
         participants.insert().values([
           {"user_id": user1_id, "chat_id": chat.id},
@@ -130,6 +130,10 @@ class ChatService:
 
       await db.commit()
       await db.refresh(chat)
+
+      await redis_manager.add_user_to_chat(user1_id, chat.id)
+      await redis_manager.add_user_to_chat(user2_id, chat.id)
+
       return chat 
     
     except Exception as e:
@@ -160,26 +164,6 @@ class ChatService:
     return result.scalars().all()
   
 
-  @staticmethod
-  async def is_user_in_chat(
-    user_id: int,
-    chat_id: int,
-    db: AsyncSession,
-  ) -> bool:
-    """
-    Проверка, является ли пользователь участником чата
-    """
-
-    stmt = select(
-      participants
-    ).where(
-      participants.c.user_id == user_id,
-      participants.c.chat_id == chat_id,
-    ).limit(1)
-
-    result = await db.execute(stmt)
-    return result.first() is not None
-  
 
 
 

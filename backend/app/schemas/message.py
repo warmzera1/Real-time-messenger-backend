@@ -16,6 +16,12 @@ class MessageCreate(MessageBase):
   pass 
 
 
+class MessageEdit(BaseModel):
+  """Схема изменения сообщения"""
+
+  content: str = Field(min_length=1, max_length=2000)
+
+
 class MessageResponse(BaseModel):
   """Схема с информацией о сообщении"""
 
@@ -25,6 +31,8 @@ class MessageResponse(BaseModel):
   content: str 
   created_at: datetime
   delivered_at: Optional[datetime] = None
+  read_at: Optional[datetime] = None
+  is_delete: bool = False
 
     
   # Комбинированная конфигурация

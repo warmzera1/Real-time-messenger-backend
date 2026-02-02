@@ -18,8 +18,8 @@ class ChatRoom(Base):
 
   participants = relationship(
     "User", 
-    secondary="participants",   # Ссылка на таблицу participants
-    back_populates="chats",     # Обратная ссылка в User
+    secondary="participants",   
+    back_populates="chats",    
     lazy="selectin",
   )
 
