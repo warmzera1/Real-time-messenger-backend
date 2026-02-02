@@ -12,4 +12,4 @@ RUN ls -la /app && poetry install --no-root --no-interaction --no-ansi
 
 COPY . .
 
-CMD ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]

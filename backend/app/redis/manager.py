@@ -3,6 +3,7 @@ import logging
 from datetime import datetime 
 
 from redis.asyncio import Redis 
+from app.core.config import settings 
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +11,8 @@ logger = logging.getLogger(__name__)
 class RedisManager:
   """Redis-менеджер для чата"""
 
-  def __init__(self, url: str = "redis://localhost:6379/0"):
-    self.redis = Redis.from_url(url, decode_responses=True)
+  def __init__(self):
+    self.redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
   # ===== ОНЛАЙН СТАТУС =====

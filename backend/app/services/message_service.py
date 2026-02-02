@@ -61,6 +61,7 @@ class MessageService:
       logger.error(f"[Create Message] Ошибка создания сообщения: {e}")
       return None 
     
+    
   @staticmethod
   async def send_message(
     chat_id: int,
@@ -85,7 +86,6 @@ class MessageService:
     if not message:
       raise ValueError("MESSAGE_CREATE_FAILED")
   
-    # Публикация в Redis для WebSocket рассылки
     await redis_manager.publish_to_chat(
       chat_id=chat_id,
       message={

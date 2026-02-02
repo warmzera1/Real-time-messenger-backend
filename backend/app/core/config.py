@@ -20,6 +20,8 @@ class Settings(BaseSettings):
   # База данных
   DATABASE_URL: str
 
+  REDIS_URL: str
+
   # CORS - какие фронтенды могут подключаться
   ALLOWED_ORIGINS: List[str] = [
     "http://localhost:3000",
