@@ -2,13 +2,21 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from contextlib import asynccontextmanager
 from app.core.config import settings 
 
+engine_kwargs = {
+  "pool_pre_ping": True
+}
+
+if "sqlite" not in settings.DATABASE_URL:
+  engine_kwargs.update({
+    "pool_size": 5,
+    "max_overflow": 10,
+  })
+
 
 # Создаем async engine
 engine = create_async_engine(
   settings.DATABASE_URL,
-  pool_pre_ping=True,
-  pool_size=10,
-  max_overflow=20,
+  **engine_kwargs,
   # echo=settings.DEBUG,      # Вывод SQL-запросов в консоль
 )
 
