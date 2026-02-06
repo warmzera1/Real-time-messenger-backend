@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -10,14 +12,15 @@ class Settings(BaseSettings):
   PROJECT_NAME: str = "MyMessenger"
   DEBUG: bool = False 
 
-  SECRET_KEY: str 
+  # Безопасность
+  SECRET_KEY: str = Field(..., min_length=32)
   ALGORITHM: str = "HS256"
-  ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7    # 30 минут
-  REFRESH_TOKEN_EXPIRE_DAYS: int = 30               # 30 дней
+  ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+  REFRESH_TOKEN_EXPIRE_DAYS: int = 7              
 
-  DATABASE_URL: str
-
-  REDIS_URL: str
+  # Подключения (валидируют формат строки)
+  DATABASE_URL: PostgresDsn
+  REDIS_URL: RedisDsn
 
   # CORS - какие фронтенды могут подключаться
   ALLOWED_ORIGINS: List[str] = [

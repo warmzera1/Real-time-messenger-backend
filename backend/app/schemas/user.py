@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Optional 
 from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class UserCreate(BaseModel):
@@ -18,11 +18,10 @@ class UserResponse(BaseModel):
   username: str 
   email: EmailStr
   is_active: bool = True 
-  created_at: Optional[datetime] = None 
+  created_at: datetime 
 
   # Позволяет создавать модели из объектов ORM
-  model_config = ConfigDict(form_attributes=True)    
-
+  model_config = ConfigDict(from_attributes=True)    
 
 
 class LoginForm(BaseModel):
@@ -30,7 +29,7 @@ class LoginForm(BaseModel):
 
   username: str | None = None
   email: str | None = None
-  password: str
+  password: str = Field(..., min_length=8)
 
   def get_identifier(self):
     return self.username or self.email

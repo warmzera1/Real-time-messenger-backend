@@ -1,13 +1,14 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List
+from typing import List
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.user import UserResponse
 
 
 class ChatRoomBase(BaseModel):
-  """Схема для чата"""
+  """Базовая схема для чата"""
 
-  name: Optional[str] = Field(None, max_length=100)   
+  name: str | None = Field(None, max_length=100, description="Название чата")  
   
 
 class ChatRoomCreate(ChatRoomBase):
@@ -16,12 +17,11 @@ class ChatRoomCreate(ChatRoomBase):
   second_user_id: int = Field(gt=0, description="ID второго пользователя")           
 
 
-class ChatRoomResponse(BaseModel):
-  """Схема с информацией о чате"""
+class ChatRoomResponse(ChatRoomBase):
+  """Схема с полной информацией о чате для ответа API"""
 
   id: int 
-  name: Optional[str]
-  is_group: bool
+  is_group: bool = Field(description="Флаг группового чата")
   created_at: datetime
   participants: List[UserResponse]
 

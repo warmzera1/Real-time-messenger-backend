@@ -1,4 +1,4 @@
-from pydantic import BaseModel 
+from pydantic import BaseModel, Field
 
 
 class TokenResponse(BaseModel):
@@ -10,9 +10,9 @@ class TokenResponse(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-  """Схема для refresh токена"""
+  """Схема для работы с refresh токеном"""
 
-  refresh_token: str
+  refresh_token: str = Field(..., description="JWT refresh_token")
 
 
 class LogoutRefreshTokenRequest(BaseModel):

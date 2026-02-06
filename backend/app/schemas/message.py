@@ -1,10 +1,10 @@
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from datetime import datetime
-from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class MessageBase(BaseModel):
-  """Схема сообщения"""
+  """Базовая схема сообщения"""
 
   content: str = Field(min_length=1, max_length=2000)
   chat_id: int = Field(gt=0)
@@ -22,27 +22,20 @@ class MessageEdit(BaseModel):
   content: str = Field(min_length=1, max_length=2000)
 
 
-class MessageResponse(BaseModel):
+class MessageResponse(MessageBase):
   """Схема с информацией о сообщении"""
 
   id: int
-  chat_id: int
   sender_id: int
-  content: str 
   created_at: datetime
-  delivered_at: Optional[datetime] = None
-  read_at: Optional[datetime] = None
+  delivered_at: datetime | None = None
+  read_at: datetime | None = None
   is_delete: bool = False
 
-    
-  # Комбинированная конфигурация
   model_config = ConfigDict(
-      from_attributes=True,  # Для работы с ORM объектами
+      from_attributes=True,  
       str_strip_whitespace=True,
       validate_assignment=True,
   )
 
-  @field_serializer("created_at")
-  def serialize_created_at(self, created_at: datetime, _info):
-    return created_at.isoformat()
   

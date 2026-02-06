@@ -1,16 +1,17 @@
-from passlib.context import CryptContext
-from datetime import datetime, timedelta 
-from jose import JWTError, jwt
+from datetime import datetime, timedelta, timezone
+from typing import Any 
 from uuid import uuid4
+
+from jose import jwt
+from passlib.context import CryptContext
+
 from app.core.config import settings
 
-
-# Контекст для работы с хешами 
+ 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ALGORITHM = settings.ALGORITHM 
 SECRET_KEY = settings.SECRET_KEY
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
   """
@@ -30,18 +31,16 @@ def get_password_hash(password: str) -> str:
   return pwd_context.hash(password)
  
 
-def create_access_token(data: dict, expires_minutes: int = 15) -> str:
+def create_access_token(data: dict[str, Any], expires_minutes: int = 15) -> str:
   """
   Создание access-токена
   """
 
-  # 1. Копируем данные, которые нужно закодировать в JWT-токен
   to_encode = data.copy()
 
-  # 2. Время жизни токена access-токена
-  expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+  minutes = expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
+  expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
 
-  # 3. Добавляем в payload
   to_encode.update({
     "exp": expire,
     "jti": str(uuid4()),
@@ -51,16 +50,14 @@ def create_access_token(data: dict, expires_minutes: int = 15) -> str:
   return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(data: dict, expires_days: int = 7) -> tuple[str, str]:
+def create_refresh_token(data: dict[str, Any], expires_days: int = 7) -> tuple[str, str]:
   """Создание refresh-токена"""
 
-  # 1. Копируем данные, которые нужно закодировать в JWT-токен
   to_encode = data.copy()
 
-  # 2. Вычисляем время жизни refresh-токена
-  expire = datetime.utcnow() + timedelta(days=expires_days)
-
-  # 3. Добавляем в payload 
+  days = expires_days or settings.REFRESH_TOKEN_EXPIRE_DAYS
+  expire = datetime.utcnow() + timedelta(days=days)
+ 
   jti = str(uuid4())
   to_encode.update(
     {
