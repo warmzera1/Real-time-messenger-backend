@@ -17,7 +17,6 @@ if "sqlite" not in settings.DATABASE_URL:
 engine = create_async_engine(
   settings.DATABASE_URL,
   **engine_kwargs,
-  # echo=settings.DEBUG,      # Вывод SQL-запросов в консоль
 )
 
 # Session для async
@@ -29,7 +28,6 @@ AsyncSessionLocal = async_sessionmaker(
   autocommit=False,
 )
 
-# Для FastAPI Depends
 async def get_db() -> AsyncSession:
   async with AsyncSessionLocal() as session:
     yield session

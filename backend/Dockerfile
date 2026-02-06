@@ -10,6 +10,8 @@ COPY pyproject.toml poetry.lock /app/
 
 RUN ls -la /app && poetry install --no-root --no-interaction --no-ansi 
 
-COPY . .
+COPY . /app
+
+RUN chmod +x entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
