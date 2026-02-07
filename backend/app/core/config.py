@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7              
 
     # Подключения (валидируют формат строки)
-    DATABASE_URL: PostgresDsn
-    REDIS_URL: RedisDsn
+    DATABASE_URL: str
+    REDIS_URL: str
 
     # CORS - какие фронтенды могут подключаться
     ALLOWED_ORIGINS: List[str] = [
