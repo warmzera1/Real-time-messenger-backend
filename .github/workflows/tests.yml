@@ -35,4 +35,4 @@ jobs:
         env:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
           REDIS_URL: "redis://localhost:6379/0"
-          SECRET_KEY: "test_secret_key"
+          SECRET_KEY: "VQe5R6EheAAIx8dHnVDJTQGwSxoeO0GFfX04qGI8DoDVQe5R6EheAAIx8dHnVDJTQGwSxoeO0GFfX04qGI8DoD"
