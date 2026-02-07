@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy import select
 from typing import List 
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession 
 
 from app.database import get_db 
 from app.schemas.chat import ChatRoomCreate, ChatRoomResponse, ChatRoomIdResponse

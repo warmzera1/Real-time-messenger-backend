@@ -1,16 +1,13 @@
-from datetime import datetime 
+from typing import Optional
 
-from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy import select, update, func
 
-from app.models.message import Message, MessageEdit, MessageRead, MessageDelivery
+from app.models.message import Message, MessageEdit, MessageDelivery
 from app.models.participant import participants
 from app.services.chat_service import ChatService
 from app.redis.manager import redis_manager
 import logging
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +140,7 @@ class MessageService:
       stmt = select(Message).where(Message.id == message_id)
       result = await db.execute(stmt)
 
-      return result.scalar_one_or_none()    # Один объект или None 
+      return result.scalar_one_or_none()   
     
     except Exception as e:
       logger.error(f"[Get Message By ID] Ошибка получения сообщения: {e}")
@@ -192,7 +189,6 @@ class MessageService:
       .where(
         Message.id.in_(message_ids),
         Message.sender_id != reader_id,
-        # Message.read_at.is_(None),
         Message.chat_id.in_(
           select(participants.c.chat_id)
           .where(participants.c.user_id == reader_id)

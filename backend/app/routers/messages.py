@@ -1,13 +1,13 @@
+from typing import List 
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession 
-from typing import List 
 
 from app.database import get_db 
 from app.schemas.message import MessageCreate, MessageResponse, MessageEdit
 from app.models.user import User
 from app.dependencies.auth import get_current_user 
 from app.services.message_service import MessageService 
-from app.services.chat_service import ChatService 
 from app.redis.manager import redis_manager
 
 router = APIRouter(prefix="/messages", tags=["messages"])

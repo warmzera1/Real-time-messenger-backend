@@ -1,11 +1,11 @@
-from sqlalchemy import select, exists, func, and_, or_
-from sqlalchemy.ext.asyncio import AsyncSession 
-from typing import List, Optional
+from typing import Optional
 import logging
+
+from sqlalchemy import select, exists, func
+from sqlalchemy.ext.asyncio import AsyncSession 
 
 from app.models.user import User
 from app.models.chat import ChatRoom
-from app.models.message import Message
 from app.models.participant import participants 
 from app.redis.manager import redis_manager
 
@@ -18,8 +18,8 @@ class ChatService:
   async def get_chat_members(chat_id: int, db: AsyncSession) -> list[int]:
     """Возвращает список ID пользователей - участников чата"""
 
-    stmt = select(participants.c.user_id).where(        # Берем только user_id
-      participants.c.chat_id == chat_id                 # из связывающей таблицы many-to-many
+    stmt = select(participants.c.user_id).where(        
+      participants.c.chat_id == chat_id                 
     )
 
     result = await db.execute(stmt)
@@ -68,12 +68,10 @@ class ChatService:
     """
 
     try:
-      # Поиск существующего чата
       existing_chat = await ChatService.find_private_chat(user1_id, user2_id, db)
       if existing_chat:
         return existing_chat
       
-      # Создание нового чата
       chat = await ChatService.create_private_chat(user1_id, user2_id, db)
 
       return chat
@@ -137,9 +135,9 @@ class ChatService:
       return chat 
     
     except Exception as e:
-      await db.rollback()
-      logger.error(f"Ошибка создания чата: {e}")
-      return None 
+        await db.rollback()
+        logger.error(f"Ошибка создания чата: {e}")
+        return None 
 
 
   @staticmethod
