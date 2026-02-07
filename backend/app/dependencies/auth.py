@@ -15,39 +15,39 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-  """
-  Dependency для HTTP эндпоинтов
-  Возвращает объект User из БД
-  """
+    """
+    Dependency для HTTP эндпоинтов
+    Возвращает объект User из БД
+    """
 
-  credentials_exception = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Не удалось проверить учетные данные",
-    headers={"WWW-Authenticate": "Bearer"},
-  )
-
-  try:
-    payload = jwt.decode(
-      token, 
-      settings.SECRET_KEY,
-      algorithms=[settings.ALGORITHM],
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Не удалось проверить учетные данные",
+        headers={"WWW-Authenticate": "Bearer"},
     )
-    if payload.get("type") != "access":
-      raise credentials_exception
 
-    user_id: str | None = payload.get("sub")
-    if not user_id:
-      raise credentials_exception
+    try:
+        payload = jwt.decode(
+        token, 
+        settings.SECRET_KEY,
+        algorithms=[settings.ALGORITHM],
+        )
+        if payload.get("type") != "access":
+            raise credentials_exception
+
+        user_id: str | None = payload.get("sub")
+        if not user_id:
+            raise credentials_exception
+        
+    except (JWTError, ValueError):
+        raise credentials_exception
     
-  except (JWTError, ValueError):
-    raise credentials_exception
-  
-  result = await db.execute(
-    select(User).where(User.id == int(user_id))
-  )
-  user = result.scalar_one_or_none()
+    result = await db.execute(
+        select(User).where(User.id == int(user_id))
+    )
+    user = result.scalar_one_or_none()
 
-  if user is None or not user.is_active:
-    raise credentials_exception
-  
-  return user 
+    if user is None or not user.is_active:
+        raise credentials_exception
+    
+    return user 

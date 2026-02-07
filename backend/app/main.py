@@ -1,8 +1,9 @@
-from fastapi import FastAPI 
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 import logging
 import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI 
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import auth, users, chat, messages, websocket
 from app.core.config import settings
@@ -13,79 +14,74 @@ from app.websocket.manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
-
 # ======== LIFESPAN ========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-  """
-  Управление жизненным циклом приложения
-  """
-  
-  # STARTUP
-  logger.info("Запуск приложения...")
+    """
+    Управление жизненным циклом приложения
+    """
+    
+    logger.info("Запуск приложения...")
 
-  # 1. Создаем таблицы в БД
-  try:
-    async with engine.begin() as conn:
-      await conn.run_sync(Base.metadata.create_all)
-    logger.info("Таблицы БД созданы/проверены")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            logger.info("Таблицы БД созданы/проверены")
 
-  except Exception as e:
-    logger.error(f"Ошибка создания таблиц БД: {e}")
-    raise
+    except Exception as e:
+        logger.error(f"Ошибка создания таблиц БД: {e}")
+        raise
 
-  # 2. Подключение Redis
-  try:
-    await redis_manager.redis.ping()
-    logger.info(f"Redis подключен")
-  except Exception as e:
-    logger.warning(f"Redis ошибка подключения: {e}")
+    try:
+        await redis_manager.redis.ping()
+        logger.info(f"Redis подключен")
+    except Exception as e:
+        logger.warning(f"Redis ошибка подключения: {e}")
 
-  # Запуск Pub/Sub слушателя
-  try:
-    asyncio.create_task(
-      redis_manager.subscribe_to_chats(
-        lambda chat_id, msg: websocket_manager.delivery_manager.broadcast_to_chat(chat_id, msg)
-      )
-    )
-    logger.info(f"Redis Pub/Sub слушатель запущен")
-  except Exception as e:
-    logger.error(f"Ошибка запуска Pub/Sub: {e}")
+    try:
+        asyncio.create_task(
+            redis_manager.subscribe_to_chats(
+            lambda chat_id, msg: websocket_manager.delivery_manager.broadcast_to_chat(chat_id, msg)
+            )
+        )
+        logger.info(f"Redis Pub/Sub слушатель запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска Pub/Sub: {e}")
 
-  logger.info("Приложение запущено успешно")
+    logger.info("Приложение запущено успешно")
 
-  yield # Приложение работает
+    yield 
 
-  # SHUTDOWN
-  logger.info("Завершение работы приложения...")
 
-  try:
-    await redis_manager.close()
-    logger.info("Redis соединение закрыто")
-  except Exception as e:
-    logger.error(f"Ошибка закрытия Redis: {e}")
+    logger.info("Завершение работы приложения...")
 
-  logger.info("Приложение остановлено")
+    try:
+        await redis_manager.close()
+        logger.info("Redis соединение закрыто")
+    except Exception as e:
+        logger.error(f"Ошибка закрытия Redis: {e}")
+
+    logger.info("Приложение остановлено")
 
 
 # ======== APP INIT ========
 app = FastAPI(
-  title="Messenger API",
-  description="Приложение для обмена сообщениями в режиме реального времени",
-  version="1.0.0",
-  lifespan=lifespan,
-  docs_url="/docs" if settings.DEBUG else None,
-  redoc_url="/redoc" if settings.DEBUG else None,
+    title="Messenger API",
+    description="Приложение для обмена сообщениями в режиме реального времени",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
 )
 
 
 # ======== CORS ========
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=settings.ALLOWED_ORIGINS,   # Список разрешенных доменов для запросов
-  allow_credentials=True,                   # Разрешает куки/авторизацию 
-  allow_methods=["*"],                      # Все HTTP-методы
-  allow_headers=["*"],                      # Все заголовки
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,   # Список разрешенных доменов для запросов
+    allow_credentials=True,                   # Разрешает куки/авторизацию 
+    allow_methods=["*"],                      # Все HTTP-методы
+    allow_headers=["*"],                      # Все заголовки
 )
 
 
@@ -100,34 +96,34 @@ app.include_router(websocket.router)
 # ======== HEALTH CHECK ========
 @app.get("/health")
 async def health_check():
-  """Проверка состояния сервиса"""
-  import datetime 
+    """Проверка состояния сервиса"""
+    import datetime 
 
-  redis_status = "отключен"
-  try:
-    await redis_manager.redis.ping()
-    redis_status = "подключен"
-  except:
-    redis_status = "ошибка"
+    redis_status = "отключен"
+    try:
+        await redis_manager.redis.ping()
+        redis_status = "подключен"
+    except:
+        redis_status = "ошибка"
 
-  return {
-    "status": "healthy",
-    "service": "messenger",
-    "timestamp": datetime.datetime.now().isoformat(),
-    "redis": redis_status,
-    "websocket_connections": len(websocket_manager.active_connections),
-    "version": "1.0.0"
-  }
+    return {
+        "status": "healthy",
+        "service": "messenger",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "redis": redis_status,
+        "websocket_connections": len(websocket_manager.active_connections),
+        "version": "1.0.0"
+    }
 
 
 @app.get("/")
 async def root():
-  return {
-    "message": "Messenger API",
-    "docs": "/docs",
-    "health": "/health",
-    "websocket": "/ws",
-  }
+    return {
+        "message": "Messenger API",
+        "docs": "/docs",
+        "health": "/health",
+        "websocket": "/ws",
+    }
 
 
 # ======== SETTINGS LOGGER ========
