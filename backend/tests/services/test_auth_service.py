@@ -93,7 +93,7 @@ async def test_login_invalid_credentials(async_session, mocker):
     user = User(
         username="testuser",
         email="test@mail.com",
-        hashed_password="hashedpassword",
+        hashed_password="hashed",
     )
     async_session.add(user)
     await async_session.commit() 
@@ -103,7 +103,7 @@ async def test_login_invalid_credentials(async_session, mocker):
         return_value=False
     )
 
-    form = LoginForm(username="testuser", password="wrong")
+    form = LoginForm(username="testuser", password="wrong_password_8")
 
     with pytest.raises(ValueError, match="INVALID_CREDENTIALS"):
         await AuthService.login(form, async_session)
@@ -114,7 +114,7 @@ async def test_refresh_token_success(async_session, mocker):
     user = User(
         username="testuser",
         email="test@mail.com",
-        hashed_password="hashedpassword"
+        hashed_password="hashed"
     )
     async_session.add(user)
     await async_session.commit() 
