@@ -93,7 +93,7 @@ async def test_login_invalid_credentials(async_session, mocker):
     user = User(
         username="testuser",
         email="test@mail.com",
-        hashed_password="hashed",
+        hashed_password="hashedpassword",
     )
     async_session.add(user)
     await async_session.commit() 
@@ -114,7 +114,7 @@ async def test_refresh_token_success(async_session, mocker):
     user = User(
         username="testuser",
         email="test@mail.com",
-        hashed_password="hashed"
+        hashed_password="hashedpassword"
     )
     async_session.add(user)
     await async_session.commit() 
