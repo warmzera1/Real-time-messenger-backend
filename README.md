@@ -165,7 +165,7 @@ name-folder/
 #### 1️⃣ Клонирование репозитория
 
 ```bash
-git  clone  https://github.com/yourusername/Real-time-messenger-backend.git
+git  clone  https://github.com/yourusername/real-time-messenger-backend.git
 
 cd  backend
 ```
